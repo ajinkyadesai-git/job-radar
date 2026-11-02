@@ -22,14 +22,13 @@ Bucket names are global, so add something unique, for example your initials and 
 ```bash
 BUCKET=job-radar-<initials>-<4-digits>
 REGION=us-west-2
-P="--profile jobradar-admin"
 aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
-  --create-bucket-configuration LocationConstraint="$REGION" $P
+  --create-bucket-configuration LocationConstraint="$REGION" --profile jobradar-admin
 aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true $P
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --profile jobradar-admin
 aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
-  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' $P
-aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled $P
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' --profile jobradar-admin
+aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled --profile jobradar-admin
 ```
 
 ## 2. Least-privilege IAM user for the ingest
@@ -40,10 +39,10 @@ state files recoverable.
 
 ```bash
 sed "s/BUCKET_NAME/$BUCKET/g" infra/aws/ingest-user-policy.json > ingest-policy.json
-aws iam create-user --user-name job-radar-ingest $P
+aws iam create-user --user-name job-radar-ingest --profile jobradar-admin
 aws iam put-user-policy --user-name job-radar-ingest \
-  --policy-name job-radar-ingest-s3 --policy-document file://ingest-policy.json $P
-aws iam create-access-key --user-name job-radar-ingest $P   # shown once: save both values
+  --policy-name job-radar-ingest-s3 --policy-document file://ingest-policy.json --profile jobradar-admin
+aws iam create-access-key --user-name job-radar-ingest --profile jobradar-admin   # shown once: save both values
 aws configure --profile job-radar-ingest                    # paste them; region us-west-2; output json
 ```
 

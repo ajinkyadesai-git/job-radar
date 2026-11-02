@@ -73,6 +73,12 @@ class GreenhouseAdapter(BoardAdapter):
             "offices",
             "company_name",
             "language",
+            "ai_disclaimer",
+            "ai_opt_out_request_url",
+            "application_deadline",
+            "education",
+            "employment",
+            "include_ai_disclaimer",
         }
     )
 
