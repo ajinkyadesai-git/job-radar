@@ -1,0 +1,46 @@
+name: ingest
+
+# Manual for now. In week 2, uncomment the schedule once a week of laptop runs looks clean.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Company slugs, space separated (blank = all enabled)"
+        required: false
+  # schedule:
+  #   - cron: "17 13 * * *"   # 13:17 UTC = 6:17 PT, off the top of the hour
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      JOBRADAR_ENV: prod
+      JOBRADAR_DEST: s3
+      JOBRADAR_S3_BUCKET: ${{ vars.JOBRADAR_S3_BUCKET }}
+      JOBRADAR_S3_PREFIX: prod
+      JOBRADAR_AWS_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - name: Ingest job boards
+        run: |
+          if [ -n "${{ inputs.only }}" ]; then
+            jobradar ingest --only ${{ inputs.only }}
+          else
+            jobradar ingest
+          fi

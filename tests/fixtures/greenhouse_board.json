@@ -1,0 +1,37 @@
+{
+  "jobs": [
+    {
+      "id": 4000001,
+      "internal_job_id": 3900001,
+      "title": "Data Engineer, Platform",
+      "updated_at": "2026-10-20T08:58:57-04:00",
+      "first_published": "2026-10-01T10:00:00-04:00",
+      "requisition_id": "REQ-101",
+      "location": {"name": "San Francisco, CA"},
+      "absolute_url": "https://boards.greenhouse.io/examplecorp/jobs/4000001",
+      "metadata": null,
+      "data_compliance": [],
+      "content": "&lt;p&gt;Build pipelines.&lt;/p&gt;",
+      "departments": [{"id": 1, "name": "Data", "child_ids": [], "parent_id": null}],
+      "offices": [{"id": 2, "name": "San Francisco", "location": "San Francisco, CA"}],
+      "company_name": "ExampleCorp"
+    },
+    {
+      "id": 4000002,
+      "internal_job_id": 3900002,
+      "title": "Analytics Engineer",
+      "updated_at": "2026-10-21T09:00:00-04:00",
+      "first_published": "2026-10-05T10:00:00-04:00",
+      "requisition_id": "REQ-102",
+      "location": {"name": "Remote - US"},
+      "absolute_url": "https://boards.greenhouse.io/examplecorp/jobs/4000002",
+      "metadata": null,
+      "data_compliance": [],
+      "content": "&lt;p&gt;Model data in dbt.&lt;/p&gt;",
+      "departments": [{"id": 1, "name": "Data", "child_ids": [], "parent_id": null}],
+      "offices": [],
+      "company_name": "ExampleCorp"
+    }
+  ],
+  "meta": {"total": 2}
+}

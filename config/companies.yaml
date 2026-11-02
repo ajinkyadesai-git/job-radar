@@ -1,0 +1,45 @@
+# Companies whose public job boards Job Radar pulls daily.
+#
+#   slug         our stable id (used in S3 paths) - never change it once data has landed
+#   source       greenhouse | ashby
+#   board_token  the company's token on that vendor:
+#                  greenhouse -> boards.greenhouse.io/<token>
+#                  ashby      -> jobs.ashbyhq.com/<token>
+#   tier         A = check often (Kafka alerts, weeks 7-8), B = daily batch only
+#
+# Tokens below are candidates. Run `make verify` before the first ingest; set
+# `enabled: false` (or fix the token) for any board that returns 404 or 0 jobs.
+# Companies move between vendors, so a 404 later usually means they switched.
+
+companies:
+  # --- Ashby -----------------------------------------------------------------
+  - { slug: crusoe,      name: Crusoe,      source: ashby,      board_token: crusoe,      tier: A }
+  - { slug: openai,      name: OpenAI,      source: ashby,      board_token: openai,      tier: A }
+  - { slug: notion,      name: Notion,      source: ashby,      board_token: notion }
+  - { slug: ramp,        name: Ramp,        source: ashby,      board_token: ramp }
+  - { slug: linear,      name: Linear,      source: ashby,      board_token: linear }
+  - { slug: replit,      name: Replit,      source: ashby,      board_token: replit }
+  - { slug: cohere,      name: Cohere,      source: ashby,      board_token: cohere }
+
+  # --- Greenhouse ------------------------------------------------------------
+  - { slug: anthropic,   name: Anthropic,   source: greenhouse, board_token: anthropic,   tier: A }
+  - { slug: databricks,  name: Databricks,  source: greenhouse, board_token: databricks,  tier: A }
+  - { slug: stripe,      name: Stripe,      source: greenhouse, board_token: stripe }
+  - { slug: airbnb,      name: Airbnb,      source: greenhouse, board_token: airbnb }
+  - { slug: figma,       name: Figma,       source: greenhouse, board_token: figma }
+  - { slug: discord,     name: Discord,     source: greenhouse, board_token: discord }
+  - { slug: dropbox,     name: Dropbox,     source: greenhouse, board_token: dropbox }
+  - { slug: robinhood,   name: Robinhood,   source: greenhouse, board_token: robinhood }
+  - { slug: coinbase,    name: Coinbase,    source: greenhouse, board_token: coinbase }
+  - { slug: instacart,   name: Instacart,   source: greenhouse, board_token: instacart }
+  - { slug: lyft,        name: Lyft,        source: greenhouse, board_token: lyft }
+  - { slug: pinterest,   name: Pinterest,   source: greenhouse, board_token: pinterest }
+  - { slug: reddit,      name: Reddit,      source: greenhouse, board_token: reddit }
+  - { slug: gitlab,      name: GitLab,      source: greenhouse, board_token: gitlab }
+  - { slug: datadog,     name: Datadog,     source: greenhouse, board_token: datadog }
+  - { slug: samsara,     name: Samsara,     source: greenhouse, board_token: samsara }
+  - { slug: scale-ai,    name: Scale AI,    source: greenhouse, board_token: scaleai }
+  - { slug: affirm,      name: Affirm,      source: greenhouse, board_token: affirm }
+  - { slug: asana,       name: Asana,       source: greenhouse, board_token: asana }
+  - { slug: twilio,      name: Twilio,      source: greenhouse, board_token: twilio }
+  - { slug: mongodb,     name: MongoDB,     source: greenhouse, board_token: mongodb }

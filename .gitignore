@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Job Radar: personal data and local outputs
+config/resumes/
+config/labels/
+config/contacts*
+data/
+artifacts/
+ingest-policy.json
