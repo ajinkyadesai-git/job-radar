@@ -226,3 +226,4 @@ config/contacts*
 data/
 artifacts/
 ingest-policy.json
+*.filled.json
