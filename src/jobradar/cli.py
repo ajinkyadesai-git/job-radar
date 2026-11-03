@@ -4,6 +4,7 @@ jobradar ingest                   # pull every enabled board, land raw JSON
 jobradar ingest --only crusoe     # one or more company slugs
 jobradar ingest --dest local      # write to ./data instead of S3
 jobradar verify                   # check each board token responds (no writes)
+jobradar dol-upload FILE.xlsx ...  # land DOL LCA disclosure files downloaded in a browser
 """
 
 from __future__ import annotations
@@ -88,6 +89,23 @@ def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
     return 0 if bad == 0 else 1
 
 
+def cmd_dol_upload(args: argparse.Namespace, settings: Settings) -> int:
+    from dataclasses import asdict
+
+    from jobradar.ingest.dol import LcaFileError, upload_lca_file
+
+    store = _store(settings)
+    failed = 0
+    for path in args.files:
+        try:
+            result = upload_lca_file(path, store)
+            print(json.dumps(asdict(result)))
+        except (LcaFileError, OSError) as exc:
+            failed += 1
+            print(f"FAILED {path}: {exc}", file=sys.stderr)
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -101,6 +119,9 @@ def main(argv: list[str] | None = None) -> int:
         if name == "ingest":
             p.add_argument("--dest", choices=["s3", "local"])
             p.add_argument("--load-date", help="override load date, YYYY-MM-DD (backfills)")
+    dol = sub.add_parser("dol-upload", help="land DOL LCA disclosure .xlsx files")
+    dol.add_argument("files", nargs="+", help="LCA_Disclosure_Data_FY2026_Q3.xlsx and so on")
+    dol.add_argument("--dest", choices=["s3", "local"])
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -109,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     overrides = {"dest": args.dest} if getattr(args, "dest", None) else {}
     settings = get_settings(**overrides)
-    commands = {"ingest": cmd_ingest, "verify": cmd_verify}
+    commands = {"ingest": cmd_ingest, "verify": cmd_verify, "dol-upload": cmd_dol_upload}
     return commands[args.cmd](args, settings)
 
 

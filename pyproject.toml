@@ -24,6 +24,12 @@ dev = [
     "moto[s3]>=5,<6",
     "responses>=0.25,<1",
     "ruff>=0.6",
+    "job-radar[dol]",
+]
+dol = [
+    "pandas>=2.2,<3",
+    "python-calamine>=0.2",
+    "pyarrow>=15",
 ]
 databricks = [
     "databricks-sql-connector>=3.3,<5",
