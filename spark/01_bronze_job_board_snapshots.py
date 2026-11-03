@@ -60,6 +60,7 @@ COMMENT 'One row per raw job board response landed by jobradar ingest.'
 
 # COMMAND ----------
 
+rows_before = spark.table(table).count()
 path = F.col("_metadata.file_path")
 
 snapshots = (
@@ -85,7 +86,8 @@ query = (
     .toTable(table)
 )
 query.awaitTermination()
-loaded = sum(p["numInputRows"] for p in query.recentProgress)
+# Count from the table itself: on serverless, streaming progress reports can omit row counts.
+loaded = spark.table(table).count() - rows_before
 print(f"Loaded {loaded} new files into {table}")
 
 # COMMAND ----------
