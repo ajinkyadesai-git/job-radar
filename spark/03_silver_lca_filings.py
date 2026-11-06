@@ -34,7 +34,7 @@ print(f"env={env}\nsource={base}*/*/lca_selected.parquet\ntable={silver}")
 # COMMAND ----------
 
 # Hours or weeks to a year, for comparing offered wages. Unknown units stay null.
-YEARLY = {"Year": 1, "Month": 12, "Bi-Weekly": 26, "Week": 52, "Hour": 2080}
+YEARLY = {"year": 1, "month": 12, "bi-weekly": 26, "week": 52, "hour": 2080}
 yearly_factor = F.create_map(*[F.lit(x) for kv in YEARLY.items() for x in kv])
 
 
@@ -83,9 +83,9 @@ filings = raw.select(
     money("wage_rate_of_pay_from").alias("wage_from"),
     money("wage_rate_of_pay_to").alias("wage_to"),
     F.col("wage_unit_of_pay").alias("wage_unit"),
-    (money("wage_rate_of_pay_from") * yearly_factor[F.col("wage_unit_of_pay")]).alias(
-        "wage_from_yearly"
-    ),
+    (
+        money("wage_rate_of_pay_from") * F.element_at(yearly_factor, F.lower("wage_unit_of_pay"))
+    ).alias("wage_from_yearly"),
     money("prevailing_wage").alias("prevailing_wage"),
     F.col("pw_unit_of_pay").alias("prevailing_wage_unit"),
     F.col("pw_wage_level").alias("wage_level"),
