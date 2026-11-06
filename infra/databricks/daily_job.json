@@ -1,0 +1,36 @@
+{
+  "name": "job-radar-daily",
+  "description": "Daily Job Radar lakehouse build: bronze -> silver postings; DOL filings; employer matches. Started by .github/workflows/daily.yml after the ingest lands new files in S3.",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 3600,
+  "tags": {"project": "job-radar"},
+  "git_source": {
+    "git_url": "https://github.com/ajinkyadesai-git/job-radar",
+    "git_provider": "gitHub",
+    "git_branch": "main"
+  },
+  "parameters": [
+    {"name": "env", "default": "prod"},
+    {"name": "bucket", "default": "job-radar-ad-4312"}
+  ],
+  "tasks": [
+    {
+      "task_key": "bronze_job_boards",
+      "notebook_task": {"notebook_path": "spark/01_bronze_job_board_snapshots", "source": "GIT"}
+    },
+    {
+      "task_key": "silver_postings",
+      "depends_on": [{"task_key": "bronze_job_boards"}],
+      "notebook_task": {"notebook_path": "spark/02_silver_postings", "source": "GIT"}
+    },
+    {
+      "task_key": "silver_lca_filings",
+      "notebook_task": {"notebook_path": "spark/03_silver_lca_filings", "source": "GIT"}
+    },
+    {
+      "task_key": "silver_employer_matches",
+      "depends_on": [{"task_key": "silver_postings"}, {"task_key": "silver_lca_filings"}],
+      "notebook_task": {"notebook_path": "spark/04_silver_employer_matches", "source": "GIT"}
+    }
+  ]
+}

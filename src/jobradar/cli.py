@@ -5,6 +5,8 @@ jobradar ingest --only crusoe     # one or more company slugs
 jobradar ingest --dest local      # write to ./data instead of S3
 jobradar verify                   # check each board token responds (no writes)
 jobradar dol-upload FILE.xlsx ...  # land DOL LCA disclosure files downloaded in a browser
+jobradar databricks-deploy         # create or update the daily Databricks job from its JSON spec
+jobradar databricks-run            # start the daily job and wait for it to finish
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import date
 
@@ -106,6 +109,55 @@ def cmd_dol_upload(args: argparse.Namespace, settings: Settings) -> int:
     return 1 if failed else 0
 
 
+def _databricks():
+    from jobradar.ops.databricks import DatabricksJobs
+
+    host, token = os.environ.get("DATABRICKS_SERVER_HOSTNAME"), os.environ.get("DATABRICKS_TOKEN")
+    if not host or not token:
+        sys.exit("Set DATABRICKS_SERVER_HOSTNAME and DATABRICKS_TOKEN (in .env or the environment)")
+    return DatabricksJobs(host, token)
+
+
+def cmd_databricks_deploy(args: argparse.Namespace, settings: Settings) -> int:
+    from pathlib import Path
+
+    spec = json.loads(Path(args.spec).read_text())
+    job_id, action = _databricks().deploy(spec)
+    print(json.dumps({"job": spec["name"], "job_id": job_id, "action": action}))
+    return 0
+
+
+def cmd_databricks_run(args: argparse.Namespace, settings: Settings) -> int:
+    from jobradar.ops.databricks import DatabricksError
+
+    client = _databricks()
+    job_id = client.find_job(args.job)
+    if job_id is None:
+        sys.exit(f"No Databricks job named {args.job!r}; run jobradar databricks-deploy first")
+    params = dict(p.split("=", 1) for p in args.param)
+    run_id = client.run_now(job_id, params)
+    print(json.dumps({"job": args.job, "run_id": run_id, "params": params}), flush=True)
+    if args.no_wait:
+        return 0
+    try:
+        result = client.wait(run_id, timeout_s=args.timeout)
+    except DatabricksError as exc:
+        print(f"FAILED {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "state": result.life_cycle_state,
+                "result": result.result_state,
+                "message": result.state_message,
+                "url": result.run_page_url,
+            }
+        )
+    )
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -122,6 +174,13 @@ def main(argv: list[str] | None = None) -> int:
     dol = sub.add_parser("dol-upload", help="land DOL LCA disclosure .xlsx files")
     dol.add_argument("files", nargs="+", help="LCA_Disclosure_Data_FY2026_Q3.xlsx and so on")
     dol.add_argument("--dest", choices=["s3", "local"])
+    dep = sub.add_parser("databricks-deploy", help="create or update the Databricks job")
+    dep.add_argument("spec", nargs="?", default="infra/databricks/daily_job.json")
+    run = sub.add_parser("databricks-run", help="start a Databricks job and wait for it")
+    run.add_argument("--job", default="job-radar-daily")
+    run.add_argument("--param", action="append", default=[], metavar="KEY=VALUE")
+    run.add_argument("--timeout", type=float, default=3600, help="seconds to wait")
+    run.add_argument("--no-wait", action="store_true")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -130,7 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     overrides = {"dest": args.dest} if getattr(args, "dest", None) else {}
     settings = get_settings(**overrides)
-    commands = {"ingest": cmd_ingest, "verify": cmd_verify, "dol-upload": cmd_dol_upload}
+    commands = {
+        "ingest": cmd_ingest,
+        "verify": cmd_verify,
+        "dol-upload": cmd_dol_upload,
+        "databricks-deploy": cmd_databricks_deploy,
+        "databricks-run": cmd_databricks_run,
+    }
     return commands[args.cmd](args, settings)
 
 
