@@ -1,8 +1,20 @@
 company_slug,dol_employer_name,status,reason
-instacart,Maplebear Inc.,proposed,Instacart's legal name is Maplebear Inc.
-openai,OpenAI OpCo LLC,proposed,OpenAI's operating company files under this name
-notion,Notion Labs Inc.,proposed,Notion's legal name is Notion Labs
-crusoe,Crusoe Energy Systems LLC,proposed,Crusoe's legal name
-robinhood,Robinhood Markets Inc.,proposed,Robinhood's parent company
-ramp,Ramp Business Corporation,proposed,Ramp's legal name
-linear,Linear Orbit Inc.,proposed,Linear's legal name
+crusoe,Crusoe Energy Systems LLC,approved,Crusoe's legal name; 124 filings across 3 spellings (Nov 5 review)
+instacart,Maplebear Inc.,approved,Instacart's legal name; also matched exactly through its DBA name Instacart (168 filings)
+notion,Notion Labs Inc.,approved,Notion's legal name; 37 filings
+openai,OpenAI OpCo LLC,approved,OpenAI's operating company; 265 filings
+ramp,Ramp Business Corporation,approved,Ramp's legal name; 61 filings
+robinhood,Robinhood Markets Inc.,approved,Robinhood's parent company; 239 filings across 3 spellings
+crusoe,Crusoe Technologies LLC,proposed,13 filings; check job titles and worksites before approving
+cohere,Cohere US Inc.,proposed,10 filings; likely Cohere's US subsidiary; check job titles before approving
+airbnb,Airbnb Payments Inc.,proposed,4 filings; Airbnb's payments subsidiary; check before approving
+stripe,Stripe Payments Company,proposed,2 filings; check before approving
+stripe,Stripe MALPB,proposed,3 filings; unclear entity; check before approving
+linear,Linear Orbit Inc.,rejected,0 filings under this name
+linear,Linear B Partners LP,rejected,different company
+linear,Linear Signs Inc.,rejected,different company (sign maker)
+cohere,Cohere Health Inc.,rejected,different company (healthcare)
+cohere,Cohere Technologies Inc.,rejected,different company
+ramp,General Transervice Inc.,rejected,different company (DBA Rampmaster)
+affirm,Affirm Background Screening Inc.,rejected,different company
+asana,Asana Partners Payroll Services LLC,rejected,different company
