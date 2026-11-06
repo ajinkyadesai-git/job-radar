@@ -27,7 +27,9 @@ import pandas as pd
 
 from jobradar.ingest.storage import Storage, get_json, put_json
 
-FILE_RE = re.compile(r"LCA_Disclosure_Data_FY(\d{4})_Q([1-4])\.xlsx$", re.IGNORECASE)
+# DOL names the current-year file "LCA_Dislclosure_Data_FY2026_Q3.xlsx" (sic), so accept any
+# spelling of "Disclosure".
+FILE_RE = re.compile(r"LCA_Dis[a-z]*_Data_FY(\d{4})_Q([1-4])\.xlsx$", re.IGNORECASE)
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "CASE_NUMBER",
@@ -96,9 +98,14 @@ def quarter_of(path: str | Path) -> LcaQuarter:
     return LcaQuarter(int(m.group(1)), int(m.group(2)))
 
 
+def _normalize_header(name: object) -> str:
+    return str(name).strip().upper().replace("-", "")
+
+
 def select_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Keep the business columns as strings; fail if a required column is missing."""
-    df = df.rename(columns=lambda c: str(c).strip().upper())
+    # Headers are upper case; FY2026 spells one "H-1B_DEPENDENT", so drop hyphens.
+    df = df.rename(columns=_normalize_header)
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise LcaFileError(f"file layout changed: missing required columns {missing}")
@@ -165,7 +172,7 @@ def upload_lca_file(
         q.quarter,
         "landed",
         rows=len(selected),
-        columns_dropped=sum(str(c).strip().upper() not in KEPT_COLUMNS for c in raw.columns),
+        columns_dropped=sum(_normalize_header(c) not in KEPT_COLUMNS for c in raw.columns),
         xlsx_uri=store.uri(xlsx_key),
         parquet_uri=store.uri(parquet_key),
     )

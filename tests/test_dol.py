@@ -31,6 +31,11 @@ def test_quarter_from_file_name():
         quarter_of("lca_2026.xlsx")
 
 
+def test_quarter_accepts_dol_misspelled_file_name():
+    q = quarter_of("LCA_Dislclosure_Data_FY2026_Q3.xlsx")  # DOL's own spelling
+    assert (q.fiscal_year, q.quarter) == (2026, 3)
+
+
 def test_select_columns_keeps_business_fields_and_drops_personal_data():
     out = select_columns(_sample())
 
@@ -40,6 +45,12 @@ def test_select_columns_keeps_business_fields_and_drops_personal_data():
     assert out.loc[0, "case_number"] == "I-200-25280-123456"
     assert out.loc[0, "decision_date"].startswith("2025-10-07")
     assert out.loc[0, "wage_rate_of_pay_from"] == "185000.0"
+
+
+def test_fy2026_hyphenated_header_is_read():
+    df = _sample().rename(columns={"H1B_DEPENDENT": "H-1B_DEPENDENT"})
+    df["H-1B_DEPENDENT"] = "Y"
+    assert select_columns(df).loc[0, "h1b_dependent"] == "Y"
 
 
 def test_missing_optional_column_becomes_null_but_required_must_exist():
