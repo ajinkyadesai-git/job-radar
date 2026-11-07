@@ -34,6 +34,9 @@ dol = [
 databricks = [
     "databricks-sql-connector>=3.3,<5",
 ]
+dbt = [
+    "dbt-databricks>=1.10,<2",
+]
 
 [project.scripts]
 jobradar = "jobradar.cli:main"

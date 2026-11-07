@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from enum import StrEnum
 from pathlib import Path
@@ -64,3 +66,18 @@ class CompanyList(BaseModel):
 def load_companies(path: str | Path) -> CompanyList:
     data = yaml.safe_load(Path(path).read_text())
     return CompanyList.model_validate(data)
+
+
+SEED_COLUMNS = ("slug", "name", "source", "board_token", "tier", "enabled")
+
+
+def companies_seed_csv(companies: CompanyList) -> str:
+    """The company list as the CSV dbt loads as a seed (dbt/seeds/companies.csv)."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(SEED_COLUMNS)
+    for c in companies.companies:
+        writer.writerow(
+            [c.slug, c.name, c.source.value, c.board_token, c.tier, str(c.enabled).lower()]
+        )
+    return buf.getvalue()

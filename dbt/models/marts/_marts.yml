@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: dim_employer
+    description: One row per tracked company with open jobs and H-1B/E-3 sponsorship history.
+    columns:
+      - name: company
+        data_tests: [unique, not_null]
+      - name: certified_rate
+        description: Share of the company's LCA filings that DOL certified (0 to 1).
+  - name: fct_postings
+    description: Every posting seen, open or closed, with business rules and sponsor stats.
+    columns:
+      - name: posting_key
+        data_tests: [unique, not_null]
+      - name: company
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_employer')
+                field: company
+  - name: fct_lca
+    description: DOL LCA filings; company is set when the filer is a tracked company.
+    columns:
+      - name: case_number
+        data_tests: [unique, not_null]
+  - name: mart_new_postings
+    description: Open US full-time or contract roles at sponsoring companies, new in the last 7 days.
+    columns:
+      - name: posting_key
+        data_tests: [unique, not_null]
+  - name: mart_sponsor_stats
+    description: Filings, approval rate and filed pay by company and occupation (SOC code).

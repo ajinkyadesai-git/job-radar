@@ -1,0 +1,28 @@
+name: job_radar
+version: "1.0.0"
+profile: job_radar
+config-version: 2
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Where the silver tables live: dev reads jobradar_dev_silver, prod reads jobradar_silver.
+vars:
+  silver_schema: "{{ 'jobradar_silver' if target.name == 'prod' else 'jobradar_dev_silver' }}"
+
+models:
+  job_radar:
+    staging:
+      +schema: staging        # -> jobradar_dev_staging / jobradar_staging
+      +materialized: view
+    marts:
+      +schema: gold           # -> jobradar_dev_gold / jobradar_gold
+      +materialized: table
+
+seeds:
+  job_radar:
+    +schema: staging

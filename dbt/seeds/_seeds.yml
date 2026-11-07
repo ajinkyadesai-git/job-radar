@@ -1,0 +1,23 @@
+version: 2
+
+seeds:
+  - name: companies
+    description: >
+      Tracked companies, generated from config/companies.yaml by
+      scripts/export_companies_seed.py. Do not edit by hand.
+    config:
+      column_types:
+        slug: string
+        name: string
+        source: string
+        board_token: string
+        tier: string
+        enabled: boolean
+    columns:
+      - name: slug
+        data_tests: [unique, not_null]
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [greenhouse, ashby]

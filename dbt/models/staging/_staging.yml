@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: stg_postings
+    description: One row per posting, with is_us, role_family, seniority and intern rules applied.
+    columns:
+      - name: posting_key
+        description: source:posting_id, unique across boards.
+        data_tests: [unique, not_null]
+      - name: role_family
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Business systems / ERP', 'Integration / solutions', 'Data / BI / AI',
+                         'Software', 'Technical program / product', 'Other']
+      - name: seniority
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Intern', 'Director+', 'Staff / principal', 'Senior', 'Mid or not stated']
+  - name: stg_lca_filings
+    columns:
+      - name: case_number
+        data_tests: [unique, not_null]
+  - name: stg_employer_matches
+    columns:
+      - name: company
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('companies')
+                field: slug
+
+unit_tests:
+  - name: posting_rules_us_role_family_intern
+    description: The rules the labeling queue relies on, checked on hand-made rows.
+    model: stg_postings
+    given:
+      - input: source('silver', 'postings')
+        rows:
+          - { source: ashby, posting_id: a1, title: Senior Data Engineer, location: "San Francisco, CA", employment_type: FullTime }
+          - { source: ashby, posting_id: a2, title: Software Engineer Intern, location: "New York, NY", employment_type: Intern }
+          - { source: greenhouse, posting_id: g1, title: NetSuite Business Systems Analyst, location: "London, UK", employment_type: null }
+          - { source: greenhouse, posting_id: g2, title: Staff Solutions Engineer, location: "Remote - US", employment_type: Contract }
+          - { source: greenhouse, posting_id: g3, title: Account Executive, location: "Vancouver, BC", employment_type: null }
+    expect:
+      rows:
+        - { posting_key: "ashby:a1", is_us: true, role_family: Data / BI / AI, seniority: Senior, is_intern: false, is_fte_or_contract: true }
+        - { posting_key: "ashby:a2", is_us: true, role_family: Software, seniority: Intern, is_intern: true, is_fte_or_contract: false }
+        - { posting_key: "greenhouse:g1", is_us: false, role_family: Business systems / ERP, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true }
+        - { posting_key: "greenhouse:g2", is_us: true, role_family: Integration / solutions, seniority: Staff / principal, is_intern: false, is_fte_or_contract: true }
+        - { posting_key: "greenhouse:g3", is_us: false, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true }

@@ -1,0 +1,19 @@
+version: 2
+
+# Silver tables built by the Databricks notebooks in spark/. dbt reads them and builds gold.
+sources:
+  - name: silver
+    database: workspace
+    schema: "{{ 'jobradar_silver' if target.name == 'prod' else 'jobradar_dev_silver' }}"
+    tables:
+      - name: postings
+        description: One row per job posting ever seen on a tracked board (spark/02).
+        config:
+          loaded_at_field: updated_at
+          freshness:
+            warn_after: { count: 36, period: hour }
+            error_after: { count: 60, period: hour }
+      - name: lca_filings
+        description: One row per DOL LCA case, H-1B, H-1B1 and E-3 (spark/03).
+      - name: employer_matches
+        description: Tracked company to DOL filer name, exact or approved alias (spark/04).
