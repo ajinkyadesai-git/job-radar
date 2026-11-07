@@ -23,7 +23,13 @@ models:
       - name: case_number
         data_tests: [unique, not_null]
   - name: stg_employer_matches
+    description: One row per (company, DOL filer name). A filer name belongs to one company only.
     columns:
+      - name: match_method
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [exact, alias]
       - name: company
         data_tests:
           - not_null

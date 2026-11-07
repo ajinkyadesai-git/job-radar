@@ -25,5 +25,21 @@ dbt seed  --target dev --profiles-dir .
 dbt build --target dev --profiles-dir .   # models + tests + unit test
 ```
 
+Check that the daily data is fresh (warns after 36 hours, fails after 60; run it on prod,
+because the daily schedule writes prod):
+
+```zsh
+dbt source freshness --target prod --profiles-dir .
+```
+
+## Tests
+
+- **Generic tests** in the `_*.yml` files: unique and not-null keys, allowed values, and links
+  between tables (every posting's company exists in `dim_employer`, and so on).
+- **Unit test** `posting_rules_us_role_family_intern`: the posting rules on 10 hand-made titles.
+- **Data tests** in `tests/`: match rate at least 90%, the Today list follows its rules, at
+  least 1,000 open postings, dates in order, employer counts consistent, one company per filer
+  name, one row per company and occupation. `warn_salary_min_above_max` only warns.
+
 `--target dev` writes `workspace.jobradar_dev_staging` / `jobradar_dev_gold` from dev silver;
 `--target prod` writes `jobradar_staging` / `jobradar_gold` from prod silver.
