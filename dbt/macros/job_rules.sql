@@ -39,7 +39,7 @@ END
 #}
 {% macro is_target_level(col) -%}
 (
-  not coalesce({{ col }}, '') RLIKE '(?i)\\bintern\\b|internship|co-op|apprentice|\\bstudent\\b|director|\\bhead\\b|\\bvp\\b|vice president'
+  not coalesce({{ col }}, '') RLIKE '(?i)\\bintern\\b|internship|co-op|apprentice|\\bstudent\\b|\\bstaff\\b|principal|director|\\bhead\\b|\\bvp\\b|vice president'
 )
 {%- endmacro %}
 
