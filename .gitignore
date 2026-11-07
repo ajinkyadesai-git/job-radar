@@ -227,3 +227,6 @@ data/
 artifacts/
 ingest-policy.json
 *.filled.json
+
+# macOS
+.DS_Store

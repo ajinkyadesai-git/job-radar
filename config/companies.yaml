@@ -43,3 +43,52 @@ companies:
   - { slug: asana,       name: Asana,       source: greenhouse, board_token: asana }
   - { slug: twilio,      name: Twilio,      source: greenhouse, board_token: twilio }
   - { slug: mongodb,     name: MongoDB,     source: greenhouse, board_token: mongodb }
+
+# Added Nov 6 (CR10): public Greenhouse or Ashby boards found with `jobradar discover`,
+# kept only with 10+ technical H-1B filings in Jul 2025 to Jun 2026 (sql/discovery_h1b_check.sql).
+  - { slug: snowflake,        name: Snowflake,        source: ashby,      board_token: snowflake }
+  - { slug: doordash,         name: DoorDash,         source: greenhouse, board_token: doordashusa }
+  - { slug: waymo,            name: Waymo,            source: greenhouse, board_token: waymo }
+  - { slug: sofi,             name: SoFi,             source: greenhouse, board_token: sofi }
+  - { slug: roblox,           name: Roblox,           source: greenhouse, board_token: roblox }
+  - { slug: cloudflare,       name: Cloudflare,       source: greenhouse, board_token: cloudflare }
+  - { slug: rubrik,           name: Rubrik,           source: greenhouse, board_token: rubrik }
+  - { slug: okta,             name: Okta,             source: greenhouse, board_token: okta }
+  - { slug: chime,            name: Chime,            source: greenhouse, board_token: chime }
+  - { slug: duolingo,         name: Duolingo,         source: greenhouse, board_token: duolingo }
+  - { slug: harvey,           name: Harvey,           source: ashby,      board_token: harvey }
+  - { slug: box,              name: Box,              source: greenhouse, board_token: boxinc }
+  - { slug: verkada,          name: Verkada,          source: greenhouse, board_token: verkada }
+  - { slug: upstart,          name: Upstart,          source: greenhouse, board_token: upstart }
+  - { slug: peloton,          name: Peloton,          source: greenhouse, board_token: peloton }
+  - { slug: gusto,            name: Gusto,            source: greenhouse, board_token: gusto }
+  - { slug: klaviyo,          name: Klaviyo,          source: greenhouse, board_token: klaviyo }
+  - { slug: twitch,           name: Twitch,           source: greenhouse, board_token: twitch }
+  - { slug: together-ai,      name: Together AI,      source: greenhouse, board_token: togetherai }
+  - { slug: nuro,             name: Nuro,             source: greenhouse, board_token: nuro }
+  - { slug: cursor,           name: Cursor,           source: ashby,      board_token: cursor }
+  - { slug: sigma-computing,  name: Sigma Computing,  source: greenhouse, board_token: sigmacomputing }
+  - { slug: navan,            name: Navan,            source: greenhouse, board_token: tripactions }
+  - { slug: glean,            name: Glean,            source: greenhouse, board_token: gleanwork }
+  - { slug: toast,            name: Toast,            source: greenhouse, board_token: toast }
+  - { slug: flexport,         name: Flexport,         source: greenhouse, board_token: flexport }
+  - { slug: plaid,            name: Plaid,            source: ashby,      board_token: plaid }
+  - { slug: sierra,           name: Sierra,           source: ashby,      board_token: sierra }
+  - { slug: nextdoor,         name: Nextdoor,         source: greenhouse, board_token: nextdoor }
+  - { slug: brex,             name: Brex,             source: greenhouse, board_token: brex }
+  - { slug: vanta,            name: Vanta,            source: ashby,      board_token: vanta }
+  - { slug: faire,            name: Faire,            source: greenhouse, board_token: faire }
+  - { slug: workato,          name: Workato,          source: greenhouse, board_token: workato }
+  - { slug: carta,            name: Carta,            source: greenhouse, board_token: carta }
+  - { slug: amplitude,        name: Amplitude,        source: ashby,      board_token: amplitude }
+  - { slug: elastic,          name: Elastic,          source: greenhouse, board_token: elastic }
+  - { slug: braze,            name: Braze,            source: greenhouse, board_token: braze }
+  - { slug: squarespace,      name: Squarespace,      source: greenhouse, board_token: squarespace }
+  - { slug: benchling,        name: Benchling,        source: ashby,      board_token: benchling }
+  - { slug: perplexity,       name: Perplexity,       source: ashby,      board_token: perplexity }
+  - { slug: oscar,            name: Oscar Health,     source: greenhouse, board_token: oscar }
+  - { slug: zocdoc,           name: Zocdoc,           source: greenhouse, board_token: zocdoc }
+  - { slug: fivetran,         name: Fivetran,         source: greenhouse, board_token: fivetran }
+  - { slug: mercury,          name: Mercury,          source: greenhouse, board_token: mercury }
+  - { slug: vercel,           name: Vercel,           source: greenhouse, board_token: vercel }
+  - { slug: modal,            name: Modal,            source: ashby,      board_token: modal }

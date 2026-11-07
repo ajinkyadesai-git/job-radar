@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 def test_repo_companies_yaml_is_valid():
     companies = load_companies(REPO / "config" / "companies.yaml")
     enabled = companies.enabled()
-    assert 20 <= len(enabled) <= 30
+    assert 20 <= len(enabled) <= 100  # 28 at launch, 74 after CR10 (Nov 6)
     assert any(c.slug == "crusoe" and c.source == "ashby" for c in enabled)
 
 

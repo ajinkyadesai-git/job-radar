@@ -5,6 +5,7 @@ jobradar ingest --only crusoe     # one or more company slugs
 jobradar ingest --dest local      # write to ./data instead of S3
 jobradar verify                   # check each board token responds (no writes)
 jobradar dol-upload FILE.xlsx ...  # land DOL LCA disclosure files downloaded in a browser
+jobradar discover FILE.csv         # which employers have a public Greenhouse or Ashby board
 jobradar databricks-deploy         # create or update the daily Databricks job from its JSON spec
 jobradar databricks-run            # start the daily job and wait for it to finish
 """
@@ -109,6 +110,31 @@ def cmd_dol_upload(args: argparse.Namespace, settings: Settings) -> int:
     return 1 if failed else 0
 
 
+def cmd_discover(args: argparse.Namespace, settings: Settings) -> int:
+    import csv
+    from dataclasses import asdict
+
+    from jobradar.ingest.discover import discover
+
+    with open(args.file, newline="") as f:
+        rows = [row for row in csv.DictReader(f) if row.get(args.column)]
+    names = [row[args.column] for row in rows]
+    # Optional "token" column: a board name to try first, when it can't be guessed.
+    known = {r[args.column]: r["token"].strip() for r in rows if (r.get("token") or "").strip()}
+    print(
+        f"Probing {len(names)} employers on Greenhouse and Ashby (polite, about 1 request a second)"
+    )
+    hits = discover(_client(settings), names, known)
+    fields = ["employer_name", "source", "token", "jobs", "board_company_name", "sample_title"]
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    with open(args.out, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(asdict(h) for h in hits)
+    print(f"{len(hits)} boards found; written to {args.out} for review")
+    return 0
+
+
 def _databricks():
     from jobradar.ops.databricks import DatabricksJobs
 
@@ -174,6 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     dol = sub.add_parser("dol-upload", help="land DOL LCA disclosure .xlsx files")
     dol.add_argument("files", nargs="+", help="LCA_Disclosure_Data_FY2026_Q3.xlsx and so on")
     dol.add_argument("--dest", choices=["s3", "local"])
+    disc = sub.add_parser("discover", help="find public job boards for a list of employers")
+    disc.add_argument("file", help="CSV with an employer_name column, e.g. a DOL query export")
+    disc.add_argument("--column", default="employer_name")
+    disc.add_argument("--out", default="data/discovered_boards.csv")
     dep = sub.add_parser("databricks-deploy", help="create or update the Databricks job")
     dep.add_argument("spec", nargs="?", default="infra/databricks/daily_job.json")
     run = sub.add_parser("databricks-run", help="start a Databricks job and wait for it")
@@ -193,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         "ingest": cmd_ingest,
         "verify": cmd_verify,
         "dol-upload": cmd_dol_upload,
+        "discover": cmd_discover,
         "databricks-deploy": cmd_databricks_deploy,
         "databricks-run": cmd_databricks_run,
     }

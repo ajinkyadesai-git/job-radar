@@ -18,3 +18,25 @@ cohere,Cohere Technologies Inc.,rejected,different company
 ramp,General Transervice Inc.,rejected,different company (DBA Rampmaster)
 affirm,Affirm Background Screening Inc.,rejected,different company
 asana,Asana Partners Payroll Services LLC,rejected,different company
+sofi,Social Finance LLC,approved,Social Finance is SoFi's legal name; 248 filings (Nov 6 discovery check)
+sofi,SoFi Bank N.A.,approved,SoFi's bank; 9 filings (Nov 6 discovery check)
+chime,Chime Financial Inc.,approved,Chime's legal name; 123 filings (Nov 6 discovery check)
+harvey,Harvey AI Corporation,approved,Harvey's legal name; 27 filings (Harvey Nash is a different company) (Nov 6 discovery check)
+upstart,Upstart Network Inc.,approved,Upstart's legal name; 68 filings (Nov 6 discovery check)
+peloton,Peloton Interactive Inc.,approved,Peloton's legal name; 52 filings (Nov 6 discovery check)
+twitch,Twitch Interactive Inc.,approved,Twitch's legal name; 54 filings (Nov 6 discovery check)
+together-ai,Together Computer Inc.,approved,Together AI's legal name; 49 filings (Nov 6 discovery check)
+cursor,Anysphere Inc.,approved,Cursor's maker; 48 filings (Nov 6 discovery check)
+navan,TripActions Inc.,approved,Navan's former name; 1 filing (Nov 6 discovery check)
+glean,Glean Technologies Inc.,approved,Glean's legal name; 38 filings (Nov 6 discovery check)
+sierra,Sierra Technologies Inc.,approved,Sierra's legal name; 33 filings (Nov 6 discovery check)
+faire,Faire Wholesale Inc.,approved,Faire's legal name; 29 filings (Nov 6 discovery check)
+carta,eShares Inc.,approved,Carta's legal name (formerly eShares); 27 filings (Nov 6 discovery check)
+elastic,Elasticsearch Inc.,approved,Elastic's US company; 26 filings (Nov 6 discovery check)
+perplexity,Perplexity AI Inc.,approved,Perplexity's legal name; 19 filings (Nov 6 discovery check)
+oscar,Oscar Management Corporation,approved,Oscar Health's operating company; 17 filings (Nov 6 discovery check)
+mercury,Mercury Technologies Inc.,approved,Mercury's legal name; 15 filings (Nov 6 discovery check)
+modal,Modal Labs Inc.,approved,Modal's legal name; 11 filings (Nov 6 discovery check)
+harvey,Harvey Nash Inc.,rejected,different company (IT staffing)
+peloton,Peloton Group LLC,rejected,unclear entity; not enough evidence it is Peloton
+snowflake,Snowflake Guam Co.,rejected,different company

@@ -25,9 +25,9 @@ Rules for edge cases:
 
 1. **Get the queue (2 min).** In Databricks, open the saved query `label_queue`
    (from [`sql/label_queue.sql`](../sql/label_queue.sql)), set `day`, run it, and copy the
-   40 rows into **Seed Labels (private) > Daily Labels**, columns B to G.
+   40 rows into **Seed Labels (private) > Daily Labels**, columns B to H (the last is the role family).
 2. **Label (11 min).** Put today's date in column A and pick **Would apply** or
-   **Would skip** in column H. Decide from the title, company and location; open the link only
+   **Would skip** in column I (Label). Decide from the title, company and location; open the link only
    when unsure. About 15 seconds a row.
 3. **Log it (2 min).** Note the count in the Program Tracker (T40). Target: 40 a day, about
    200 by Nov 8, with at least 50 marked Would apply.
