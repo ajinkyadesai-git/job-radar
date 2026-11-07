@@ -4,13 +4,8 @@ name: dbt-ci
 # It writes to jobradar_ci_* schemas and only reads prod silver, so prod is never touched.
 # A failing dbt test turns this check red, and the main-branch rule blocks the merge.
 on:
+  # No path filter: this is a required check, so it must run on every pull request.
   pull_request:
-    paths:
-      - "dbt/**"
-      - "config/**"
-      - "src/**"
-      - "spark/**"
-      - ".github/workflows/dbt-ci.yml"
   workflow_dispatch:
 
 permissions:
