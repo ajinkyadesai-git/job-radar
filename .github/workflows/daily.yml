@@ -1,7 +1,8 @@
 name: daily
 
-# The daily pipeline: land today's job boards in S3 (prod), then run the Databricks job
-# (bronze -> silver postings, DOL filings, employer matches) and fail loudly if it fails.
+# The daily pipeline: land today's job boards in S3 (prod), run the Databricks job
+# (bronze -> silver postings, DOL filings, employer matches), then build and test the gold
+# layer with dbt and check the data is fresh. Any failure turns the run red and emails you.
 on:
   schedule:
     - cron: "17 14 * * *" # 14:17 UTC = 6:17 PST / 7:17 PDT, off the top of the hour
@@ -32,6 +33,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
       DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_SERVER_HOSTNAME }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +41,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e .
+      - run: pip install -e ".[dbt]"
       - name: Ingest job boards to S3
         run: |
           if [ -n "${{ inputs.only }}" ]; then
@@ -49,3 +51,9 @@ jobs:
           fi
       - name: Build the lakehouse in Databricks
         run: jobradar databricks-run --job job-radar-daily --param env=prod --timeout 3600
+      - name: Build and test the gold layer (dbt, prod)
+        working-directory: dbt
+        run: dbt build --target prod --profiles-dir .
+      - name: Check the data is fresh
+        working-directory: dbt
+        run: dbt source freshness --target prod --profiles-dir .

@@ -11,6 +11,16 @@ job_radar:
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       threads: 4
+    ci:
+      # Pull-request checks: builds into jobradar_ci_staging / jobradar_ci_gold from prod
+      # silver (read only), so a change is tested on real data without touching prod gold.
+      type: databricks
+      catalog: workspace
+      schema: jobradar_ci
+      host: "{{ env_var('DATABRICKS_SERVER_HOSTNAME') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4
     prod:
       type: databricks
       catalog: workspace

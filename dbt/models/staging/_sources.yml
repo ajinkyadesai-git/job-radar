@@ -1,10 +1,11 @@
 version: 2
 
 # Silver tables built by the Databricks notebooks in spark/. dbt reads them and builds gold.
+# dev reads dev silver; ci and prod read prod silver (ci only reads it, never writes).
 sources:
   - name: silver
     database: workspace
-    schema: "{{ 'jobradar_silver' if target.name == 'prod' else 'jobradar_dev_silver' }}"
+    schema: "{{ 'jobradar_dev_silver' if target.name == 'dev' else 'jobradar_silver' }}"
     tables:
       - name: postings
         description: One row per job posting ever seen on a tracked board (spark/02).

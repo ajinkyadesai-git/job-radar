@@ -1,0 +1,46 @@
+name: dbt-ci
+
+# Every pull request builds and tests the gold layer on real data before it can be merged.
+# It writes to jobradar_ci_* schemas and only reads prod silver, so prod is never touched.
+# A failing dbt test turns this check red, and the main-branch rule blocks the merge.
+on:
+  pull_request:
+    paths:
+      - "dbt/**"
+      - "config/**"
+      - "src/**"
+      - "spark/**"
+      - ".github/workflows/dbt-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dbt-ci
+  cancel-in-progress: true
+
+jobs:
+  dbt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_SERVER_HOSTNAME }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "..[dbt]"
+      - name: Companies seed matches config/companies.yaml
+        run: |
+          python ../scripts/export_companies_seed.py
+          git diff --exit-code seeds/companies.csv
+      - name: Build and test the gold layer (ci target)
+        run: dbt build --target ci --profiles-dir .
