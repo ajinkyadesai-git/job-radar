@@ -17,7 +17,7 @@
 {% macro role_family(col) -%}
 CASE
   WHEN {{ col }} RLIKE '(?i)business systems|systems analyst|\\berp\\b|netsuite|\\bsap\\b|oracle|workday|salesforce|coupa|enterprise applications|financ(e|ial) systems' THEN 'Business systems / ERP'
-  WHEN {{ col }} RLIKE '(?i)integration|solutions? (engineer|consultant|architect)|implementation|technical consultant|forward deployed|customer engineer' THEN 'Integration / solutions'
+  WHEN {{ col }} RLIKE '(?i)integration|solutions? (engineer|architect)|\\bconsultant\\b|consulting|implementation|forward deployed|customer engineer' THEN 'Integration / solutions'
   WHEN {{ col }} RLIKE '(?i)data engineer|analytics engineer|\\betl\\b|data warehouse|business intelligence|\\bbi\\b|power bi|tableau|data analyst|analytics|data scien|machine learning|\\bml\\b|\\bai\\b|artificial intelligence' THEN 'Data / BI / AI'
   WHEN {{ col }} RLIKE '(?i)software (engineer|developer)|backend|full stack|python|application developer' THEN 'Software'
   WHEN {{ col }} RLIKE '(?i)technical program manager|program analyst|product owner|technical product manager' THEN 'Technical program / product'
@@ -29,6 +29,17 @@ END
 (
      coalesce({{ title_col }}, '') RLIKE '(?i)\\bintern\\b|internship|co-op|apprentice|\\bstudent\\b'
   OR coalesce({{ employment_type_col }}, '') = 'Intern'
+)
+{%- endmacro %}
+
+{#
+  Levels you would apply to: not an intern and not Staff / principal or above.
+  Plain "Program Manager" and "Business Analyst" are left in Other on purpose: they are
+  rarely visa-safe, so they are not target roles.
+#}
+{% macro is_target_level(col) -%}
+(
+  not coalesce({{ col }}, '') RLIKE '(?i)\\bintern\\b|internship|co-op|apprentice|\\bstudent\\b|\\bstaff\\b|principal|director|\\bhead\\b|\\bvp\\b|vice president'
 )
 {%- endmacro %}
 

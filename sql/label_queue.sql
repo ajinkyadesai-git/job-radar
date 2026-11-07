@@ -14,7 +14,7 @@ open_postings AS (
   SELECT p.source, p.posting_id, p.company, p.title, p.location, p.url, p.first_seen,
          CASE
            WHEN p.title RLIKE '(?i)business systems|systems analyst|\\berp\\b|netsuite|\\bsap\\b|oracle|workday|salesforce|coupa|enterprise applications|financ(e|ial) systems' THEN 'Business systems / ERP'
-           WHEN p.title RLIKE '(?i)integration|solutions? (engineer|consultant|architect)|implementation|technical consultant|forward deployed|customer engineer' THEN 'Integration / solutions'
+           WHEN p.title RLIKE '(?i)integration|solutions? (engineer|architect)|\\bconsultant\\b|consulting|implementation|forward deployed|customer engineer' THEN 'Integration / solutions'
            WHEN p.title RLIKE '(?i)data engineer|analytics engineer|\\betl\\b|data warehouse|business intelligence|\\bbi\\b|power bi|tableau|data analyst|analytics|data scien|machine learning|\\bml\\b|\\bai\\b|artificial intelligence' THEN 'Data / BI / AI'
            WHEN p.title RLIKE '(?i)software (engineer|developer)|backend|full stack|python|application developer' THEN 'Software'
            WHEN p.title RLIKE '(?i)technical program manager|program analyst|product owner|technical product manager' THEN 'Technical program / product'

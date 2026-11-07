@@ -27,6 +27,7 @@ select
     {{ role_family('title') }}                            as role_family,
     {{ seniority('title') }}                              as seniority,
     {{ is_intern('title', 'employment_type') }}           as is_intern,
+    {{ is_target_level('title') }}                        as is_target_level,
     coalesce(employment_type, 'FullTime') in ('FullTime', 'Contract')
         and not {{ is_intern('title', 'employment_type') }} as is_fte_or_contract,
     -- Yearly USD salary where the board gives one; hourly is scaled by 2,080 hours.

@@ -1,5 +1,6 @@
--- The "Today" list: open US roles you could apply to, first seen in the last 7 days, at
--- companies that sponsor. The first load day is left out: everything was "new" that day.
+-- The "Today" list: open US full-time or contract roles at your level (no interns, nothing
+-- Staff / principal or above), first seen in the last 7 days, at companies that sponsor.
+-- The first load day is left out: everything was "new" that day.
 with first_load as (
     select min(first_seen) as day from {{ ref('stg_postings') }}
 )
@@ -26,6 +27,7 @@ cross join first_load
 where p.is_open
   and p.is_us
   and p.is_fte_or_contract
+  and p.is_target_level
   and p.is_sponsor
   and p.first_seen > first_load.day
   and p.first_seen >= date_sub(current_date(), 7)

@@ -34,7 +34,9 @@ models:
 
 unit_tests:
   - name: posting_rules_us_role_family_intern
-    description: The rules the labeling queue relies on, checked on hand-made rows.
+    description: >
+      The posting rules on hand-made rows: US only, role families (plain Program Manager and
+      Business Analyst stay in Other: not visa-safe targets), interns and Staff+ not target level.
     model: stg_postings
     given:
       - input: source('silver', 'postings')
@@ -44,10 +46,20 @@ unit_tests:
           - { source: greenhouse, posting_id: g1, title: NetSuite Business Systems Analyst, location: "London, UK", employment_type: null }
           - { source: greenhouse, posting_id: g2, title: Staff Solutions Engineer, location: "Remote - US", employment_type: Contract }
           - { source: greenhouse, posting_id: g3, title: Account Executive, location: "Vancouver, BC", employment_type: null }
+          - { source: greenhouse, posting_id: g4, title: Senior Consultant, location: "Chicago, IL", employment_type: null }
+          - { source: greenhouse, posting_id: g5, title: Technical Program Manager, location: "Seattle, WA", employment_type: null }
+          - { source: greenhouse, posting_id: g6, title: Program Manager, location: "Austin, TX", employment_type: null }
+          - { source: greenhouse, posting_id: g7, title: Business Analyst, location: "Denver, CO", employment_type: null }
+          - { source: greenhouse, posting_id: g8, title: "Director, Analytics Engineering", location: "Boston, MA", employment_type: null }
     expect:
       rows:
-        - { posting_key: "ashby:a1", is_us: true, role_family: Data / BI / AI, seniority: Senior, is_intern: false, is_fte_or_contract: true }
-        - { posting_key: "ashby:a2", is_us: true, role_family: Software, seniority: Intern, is_intern: true, is_fte_or_contract: false }
-        - { posting_key: "greenhouse:g1", is_us: false, role_family: Business systems / ERP, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true }
-        - { posting_key: "greenhouse:g2", is_us: true, role_family: Integration / solutions, seniority: Staff / principal, is_intern: false, is_fte_or_contract: true }
-        - { posting_key: "greenhouse:g3", is_us: false, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true }
+        - { posting_key: "ashby:a1", is_us: true, role_family: Data / BI / AI, seniority: Senior, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "ashby:a2", is_us: true, role_family: Software, seniority: Intern, is_intern: true, is_fte_or_contract: false, is_target_level: false }
+        - { posting_key: "greenhouse:g1", is_us: false, role_family: Business systems / ERP, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g2", is_us: true, role_family: Integration / solutions, seniority: Staff / principal, is_intern: false, is_fte_or_contract: true, is_target_level: false }
+        - { posting_key: "greenhouse:g3", is_us: false, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g4", is_us: true, role_family: Integration / solutions, seniority: Senior, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g5", is_us: true, role_family: Technical program / product, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g6", is_us: true, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g7", is_us: true, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true }
+        - { posting_key: "greenhouse:g8", is_us: true, role_family: Data / BI / AI, seniority: Director+, is_intern: false, is_fte_or_contract: true, is_target_level: false }
