@@ -25,6 +25,7 @@ dev = [
     "responses>=0.25,<1",
     "ruff>=0.6",
     "job-radar[dol]",
+    "scikit-learn>=1.5,<2",
 ]
 dol = [
     "pandas>=2.2,<3",
@@ -32,6 +33,12 @@ dol = [
     "pyarrow>=15",
 ]
 databricks = [
+    "databricks-sql-connector>=3.3,<5",
+]
+ml = [
+    "scikit-learn>=1.5,<2",
+    "pandas>=2.2,<3",
+    "joblib>=1.4",
     "databricks-sql-connector>=3.3,<5",
 ]
 dbt = [
