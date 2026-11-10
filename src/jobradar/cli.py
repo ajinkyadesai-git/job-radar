@@ -8,6 +8,8 @@ jobradar dol-upload FILE.xlsx ...  # land DOL LCA disclosure files downloaded in
 jobradar discover FILE.csv         # which employers have a public Greenhouse or Ashby board
 jobradar databricks-deploy         # create or update the daily Databricks job from its JSON spec
 jobradar databricks-run            # start the daily job and wait for it to finish
+jobradar fit-train                 # train the fit model on your labels and report precision/recall
+jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
 """
 
 from __future__ import annotations
@@ -184,6 +186,92 @@ def cmd_databricks_run(args: argparse.Namespace, settings: Settings) -> int:
     return 0 if result.ok else 1
 
 
+def _read_resume(path: str) -> str:
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        print(f"note: no resume at {path}; training without the resume-match feature")
+        return ""
+    return p.read_text(errors="ignore")
+
+
+def cmd_fit_train(args: argparse.Namespace, settings: Settings) -> int:
+    from datetime import date as _date
+
+    from jobradar.fit.features import fetch_postings
+    from jobradar.fit.labels import read_labels, time_split
+    from jobradar.fit.model import resume_scores, save, train_and_evaluate
+
+    labels = read_labels(args.labels)
+    train, test = time_split(
+        labels, _date.fromisoformat(args.test_from) if args.test_from else None
+    )
+    postings = fetch_postings(labels["posting_key"], env=args.env)
+    data = labels.drop(columns=["role_family"], errors="ignore").merge(postings, on="posting_key")
+    missing = len(labels) - len(data)
+    resume = _read_resume(args.resume)
+    pipe, report = train_and_evaluate(
+        data, train["posting_key"], test["posting_key"], resume_text=resume
+    )
+    out = save(pipe, report, args.out)
+    m, b = report.model, report.baseline
+    print(
+        f"labels: {len(labels)} ({int(labels['y'].sum())} would apply); "
+        f"not found in gold: {missing}"
+    )
+    print(
+        f"train days {report.train_days} n={report.n_train}; "
+        f"test days {report.test_days} n={report.n_test}"
+    )
+    print(f"{'':10}{'precision':>10}{'recall':>8}{'PR-AUC':>8}{'P@10':>7}")
+    print(
+        f"{'model':10}{m.precision:>10}{m.recall:>8}{str(m.pr_auc):>8}{str(m.precision_at_10):>7}"
+    )
+    print(f"{'baseline':10}{b.precision:>10}{b.recall:>8}{'-':>8}{'-':>7}")
+    if resume:
+        rm = resume_scores(pipe, data)
+        print(
+            f"resume match, average: would apply {rm[data['y'] == 1].mean():.3f}, "
+            f"would skip {rm[data['y'] == 0].mean():.3f}"
+        )
+    print("pushes toward apply:", ", ".join(report.top_apply_terms[:10]))
+    print("pushes toward skip: ", ", ".join(report.top_skip_terms[:10]))
+    print(f"saved {out}/fit_model.joblib and {out}/fit_report.json (git-ignored)")
+    return 0
+
+
+def cmd_fit_queue(args: argparse.Namespace, settings: Settings) -> int:
+    from datetime import date as _date
+    from pathlib import Path
+
+    import joblib
+
+    from jobradar.fit.features import fetch_candidates
+    from jobradar.fit.labels import read_labels
+    from jobradar.fit.model import predict_proba
+    from jobradar.fit.queue import SHEET_COLUMNS, build_queue, split_posting_key
+
+    pipe = joblib.load(Path(args.model) / "fit_model.joblib")
+    labeled = read_labels(args.labels)["posting_key"]
+    cands = split_posting_key(fetch_candidates(env=args.env))
+    today = _date.today()
+    queue = build_queue(
+        cands, predict_proba(pipe, cands), labeled, n=args.n, seed=today.toordinal()
+    )
+    out = Path(args.out or f"data/labels/queue_{today.isoformat()}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    queue[SHEET_COLUMNS].to_csv(out, index=False, header=False, sep="\t")
+    queue[["posting_key", "pick", "score"]].to_csv(out.with_suffix(".picks.csv"), index=False)
+    counts = queue["pick"].value_counts().to_dict()
+    print(
+        f"{len(cands)} open candidates, {len(labeled)} already labeled; "
+        f"picked {len(queue)}: {counts}"
+    )
+    print(f"wrote {out}: tab-separated, columns B to H, ready to paste into Daily Labels")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -211,12 +299,26 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--param", action="append", default=[], metavar="KEY=VALUE")
     run.add_argument("--timeout", type=float, default=3600, help="seconds to wait")
     run.add_argument("--no-wait", action="store_true")
+    fit = sub.add_parser("fit-train", help="train the fit model on your labels")
+    fit.add_argument("--labels", default="data/labels/daily_labels.csv")
+    fit.add_argument("--out", default="data/model")
+    fit.add_argument("--env", choices=["dev", "prod"], default="prod", help="gold to read")
+    fit.add_argument("--test-from", help="first labeling day to hold out (default: the last)")
+    fit.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
+    fq = sub.add_parser("fit-queue", help="pick the next postings to label")
+    fq.add_argument("--labels", default="data/labels/daily_labels.csv")
+    fq.add_argument("--model", default="data/model")
+    fq.add_argument("--env", choices=["dev", "prod"], default="prod")
+    fq.add_argument("-n", type=int, default=40, help="how many postings")
+    fq.add_argument("--out", help="default data/labels/queue_<today>.csv")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    if not args.verbose:  # the Databricks SQL client logs every HTTP call at INFO
+        logging.getLogger("databricks").setLevel(logging.WARNING)
     overrides = {"dest": args.dest} if getattr(args, "dest", None) else {}
     settings = get_settings(**overrides)
     commands = {
@@ -226,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
         "discover": cmd_discover,
         "databricks-deploy": cmd_databricks_deploy,
         "databricks-run": cmd_databricks_run,
+        "fit-train": cmd_fit_train,
+        "fit-queue": cmd_fit_queue,
     }
     return commands[args.cmd](args, settings)
 
