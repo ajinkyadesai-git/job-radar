@@ -1,5 +1,7 @@
 -- The "Today" list: open US full-time or contract roles at your level (no interns, nothing
--- Staff / principal or above), first seen in the last 7 days, at companies that sponsor.
+-- Staff / principal or above) at companies that sponsor, first seen in the last 7 days.
+-- Postings that say they won't sponsor, or read like green-card (PERM) ads, are left out;
+-- gold.audit_dropped_postings lists them with the phrase that matched.
 -- The first load day is left out: everything was "new" that day.
 with first_load as (
     select min(first_seen) as day from {{ ref('stg_postings') }}
@@ -28,6 +30,8 @@ where p.is_open
   and p.is_us
   and p.is_fte_or_contract
   and p.is_target_level
+  and not p.has_visa_blocker
+  and not p.is_perm_style_ad
   and p.is_sponsor
   and p.first_seen > first_load.day
   and p.first_seen >= date_sub(current_date(), 7)
