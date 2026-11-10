@@ -109,4 +109,56 @@ def test_train_and_evaluate_learns_an_easy_pattern(tmp_path):
     assert report.n_train == 40 and report.n_test == 20
     assert report.model.precision == 1.0 and report.model.recall == 1.0
     assert any("data" in t for t in report.top_apply_terms)
-    assert pipe.predict_proba(data.drop(columns=["y"]).head(2))[:, 1].shape == (2,)
+    from jobradar.fit.model import predict_proba
+
+    assert predict_proba(pipe, data.drop(columns=["y"]).head(2)).shape == (2,)
+
+
+def test_years_required_reads_the_highest_figure():
+    from jobradar.fit.features import years_required
+
+    assert years_required("5+ years of experience; 2+ years with dbt") == 5.0
+    assert years_required("3-5 years in analytics") == 3.0
+    assert years_required("at least 7 yrs building pipelines") == 7.0
+    assert years_required("we have been around for 120 years") is None
+    assert years_required("no figure here") is None
+    assert years_required(None) is None
+
+
+def test_resume_match_ranks_the_closer_posting_higher():
+    from jobradar.fit.model import ResumeMatch
+
+    rm = ResumeMatch("netsuite integrations sql python dbt databricks").fit(
+        ["netsuite integrations and sql", "enterprise sales quota", "dbt databricks python"]
+    )
+    s = rm.transform(["netsuite integrations and sql", "enterprise sales quota"]).ravel()
+    assert s[0] > s[1] and 0 <= s[1] <= s[0] <= 1
+    assert ResumeMatch("").fit(["a b"]).transform(["a b"]).ravel().tolist() == [0.0]
+
+
+def test_train_with_resume_reports_resume_scores():
+    from jobradar.fit.model import predict_proba, resume_scores
+
+    data = synthetic()
+    train, test = time_split(data[["posting_key", "label_date", "y"]])
+    pipe, _ = train_and_evaluate(
+        data, train["posting_key"], test["posting_key"], resume_text="spark dbt sql pipelines"
+    )
+    rm = resume_scores(pipe, data)
+    assert rm[data["y"] == 1].mean() > rm[data["y"] == 0].mean()
+    assert predict_proba(pipe, data.drop(columns=["y"])).shape == (len(data),)
+
+
+def test_build_queue_mixes_likely_unsure_random_and_skips_labeled():
+    from jobradar.fit.queue import build_queue
+
+    cands = pd.DataFrame({"posting_key": [f"ashby:{i}" for i in range(100)]})
+    scores = np.linspace(0, 1, 100)
+    q = build_queue(cands, scores, labeled_keys=["ashby:99"], n=40, seed=1)
+    assert len(q) == 40 and q["posting_key"].is_unique
+    assert "ashby:99" not in set(q["posting_key"])
+    counts = q["pick"].value_counts().to_dict()
+    assert counts == {"likely yes": 20, "unsure": 12, "random": 8}
+    assert q.loc[q["pick"] == "likely yes", "score"].min() > 0.75
+    # shuffled: the order does not reveal the model's ranking
+    assert not q["score"].is_monotonic_decreasing

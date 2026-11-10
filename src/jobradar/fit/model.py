@@ -15,11 +15,13 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, precision_score, recall_score
+from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -35,9 +37,57 @@ BASELINE_FAMILIES = {
 }
 
 
-def build_pipeline() -> Pipeline:
+class ResumeMatch(BaseEstimator, TransformerMixin):
+    """One number per posting: how closely its description matches your resume (0 to 1).
+
+    Words are weighted by how rare they are across postings (TF-IDF), so "NetSuite" or "dbt"
+    in both counts for more than "team". The resume is read on your laptop only; it is kept
+    inside the saved model file, which lives in git-ignored data/.
+    """
+
+    def __init__(self, resume_text: str = ""):
+        self.resume_text = resume_text
+
+    def fit(self, X, y=None):
+        if not self.resume_text.strip():
+            return self  # no resume: the feature is a constant 0
+        docs = list(pd.Series(X).fillna("")) + [self.resume_text]
+        self.vec_ = TfidfVectorizer(
+            ngram_range=(1, 2), min_df=1, sublinear_tf=True, stop_words="english"
+        ).fit(docs)
+        self.resume_vec_ = self.vec_.transform([self.resume_text])
+        return self
+
+    def transform(self, X):
+        if not self.resume_text.strip():
+            return np.zeros((len(X), 1))
+        sims = cosine_similarity(self.vec_.transform(pd.Series(X).fillna("")), self.resume_vec_)
+        return np.asarray(sims).reshape(-1, 1)
+
+    def get_feature_names_out(self, input_features=None):
+        return np.array(["resume_match"])
+
+
+def resume_scores(pipe: Pipeline, df: pd.DataFrame) -> np.ndarray:
+    """The resume-match score (0 to 1) the fitted pipeline gives each posting."""
+    ct = pipe.named_steps["features"]
+    match = ct.named_transformers_["resume"].named_steps["resumematch"]
+    return match.transform(prepare(df)[TEXT_BODY]).ravel()
+
+
+def predict_proba(pipe: Pipeline, df: pd.DataFrame) -> np.ndarray:
+    """Chance (0 to 1) that you would apply, for postings straight from the gold table."""
+    return pipe.predict_proba(prepare(df))[:, 1]
+
+
+def build_pipeline(resume_text: str = "") -> Pipeline:
     features = ColumnTransformer(
         [
+            (
+                "resume",
+                make_pipeline(ResumeMatch(resume_text), StandardScaler()),
+                TEXT_BODY,
+            ),
             ("title", TfidfVectorizer(ngram_range=(1, 2), min_df=1, sublinear_tf=True), TEXT_TITLE),
             (
                 "body",
@@ -53,7 +103,10 @@ def build_pipeline() -> Pipeline:
             ("cat", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL),
             (
                 "num",
-                make_pipeline(SimpleImputer(strategy="median"), StandardScaler()),
+                make_pipeline(
+                    SimpleImputer(strategy="median", add_indicator=True, keep_empty_features=True),
+                    StandardScaler(),
+                ),
                 NUMERIC,
             ),
         ]
@@ -119,14 +172,16 @@ def top_terms(pipe: Pipeline, k: int = 15) -> tuple[list[str], list[str]]:
     return [names[i] for i in order[::-1][:k]], [names[i] for i in order[:k]]
 
 
-def train_and_evaluate(data: pd.DataFrame, train_keys, test_keys, threshold: float = 0.5):
+def train_and_evaluate(
+    data: pd.DataFrame, train_keys, test_keys, threshold: float = 0.5, resume_text: str = ""
+):
     """data: one row per labeled posting with features and y. Returns (fitted pipeline, report)."""
     data = prepare(data)
     train = data[data["posting_key"].isin(set(train_keys))]
     test = data[data["posting_key"].isin(set(test_keys))]
     if train["y"].nunique() < 2:
         raise ValueError("training labels need both 'Would apply' and 'Would skip'")
-    pipe = build_pipeline().fit(train, train["y"])
+    pipe = build_pipeline(resume_text).fit(train, train["y"])
     proba = pipe.predict_proba(test)[:, 1]
     pred = (proba >= threshold).astype(int)
     apply_terms, skip_terms = top_terms(pipe)
@@ -142,7 +197,7 @@ def train_and_evaluate(data: pd.DataFrame, train_keys, test_keys, threshold: flo
         top_skip_terms=skip_terms,
     )
     # Final model learns from every label, so tomorrow's scores use everything you know.
-    final = build_pipeline().fit(data, data["y"])
+    final = build_pipeline(resume_text).fit(data, data["y"])
     return final, report
 
 
