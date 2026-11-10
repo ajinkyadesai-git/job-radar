@@ -8,6 +8,7 @@ jobradar dol-upload FILE.xlsx ...  # land DOL LCA disclosure files downloaded in
 jobradar discover FILE.csv         # which employers have a public Greenhouse or Ashby board
 jobradar databricks-deploy         # create or update the daily Databricks job from its JSON spec
 jobradar databricks-run            # start the daily job and wait for it to finish
+jobradar fit-train                 # train the fit model on your labels and report precision/recall
 """
 
 from __future__ import annotations
@@ -184,6 +185,42 @@ def cmd_databricks_run(args: argparse.Namespace, settings: Settings) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_fit_train(args: argparse.Namespace, settings: Settings) -> int:
+    from datetime import date as _date
+
+    from jobradar.fit.features import fetch_postings
+    from jobradar.fit.labels import read_labels, time_split
+    from jobradar.fit.model import save, train_and_evaluate
+
+    labels = read_labels(args.labels)
+    train, test = time_split(
+        labels, _date.fromisoformat(args.test_from) if args.test_from else None
+    )
+    postings = fetch_postings(labels["posting_key"], env=args.env)
+    data = labels.drop(columns=["role_family"], errors="ignore").merge(postings, on="posting_key")
+    missing = len(labels) - len(data)
+    pipe, report = train_and_evaluate(data, train["posting_key"], test["posting_key"])
+    out = save(pipe, report, args.out)
+    m, b = report.model, report.baseline
+    print(
+        f"labels: {len(labels)} ({int(labels['y'].sum())} would apply); "
+        f"not found in gold: {missing}"
+    )
+    print(
+        f"train days {report.train_days} n={report.n_train}; "
+        f"test days {report.test_days} n={report.n_test}"
+    )
+    print(f"{'':10}{'precision':>10}{'recall':>8}{'PR-AUC':>8}{'P@10':>7}")
+    print(
+        f"{'model':10}{m.precision:>10}{m.recall:>8}{str(m.pr_auc):>8}{str(m.precision_at_10):>7}"
+    )
+    print(f"{'baseline':10}{b.precision:>10}{b.recall:>8}{'-':>8}{'-':>7}")
+    print("pushes toward apply:", ", ".join(report.top_apply_terms[:10]))
+    print("pushes toward skip: ", ", ".join(report.top_skip_terms[:10]))
+    print(f"saved {out}/fit_model.joblib and {out}/fit_report.json (git-ignored)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -211,6 +248,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--param", action="append", default=[], metavar="KEY=VALUE")
     run.add_argument("--timeout", type=float, default=3600, help="seconds to wait")
     run.add_argument("--no-wait", action="store_true")
+    fit = sub.add_parser("fit-train", help="train the fit model on your labels")
+    fit.add_argument("--labels", default="data/labels/daily_labels.csv")
+    fit.add_argument("--out", default="data/model")
+    fit.add_argument("--env", choices=["dev", "prod"], default="prod", help="gold to read")
+    fit.add_argument("--test-from", help="first labeling day to hold out (default: the last)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -226,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "discover": cmd_discover,
         "databricks-deploy": cmd_databricks_deploy,
         "databricks-run": cmd_databricks_run,
+        "fit-train": cmd_fit_train,
     }
     return commands[args.cmd](args, settings)
 
