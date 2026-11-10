@@ -20,12 +20,13 @@ AND NOT (
 {%- endmacro %}
 
 {% macro role_family(col) -%}
+{# Explicit job types first: "Technical Program Manager, AI Delivery" is TPM, not Data / AI. #}
 CASE
+  WHEN {{ col }} RLIKE '(?i)technical program manager|program analyst|product owner|technical product manager' THEN 'Technical program / product'
   WHEN {{ col }} RLIKE '(?i)business systems|systems analyst|\\berp\\b|netsuite|\\bsap\\b|oracle|workday|salesforce|coupa|enterprise applications|financ(e|ial) systems' THEN 'Business systems / ERP'
   WHEN {{ col }} RLIKE '(?i)integration|solutions? (engineer|architect)|\\bconsultant\\b|consulting|implementation|forward deployed|\\bfde\\b|customer engineer' THEN 'Integration / solutions'
   WHEN {{ col }} RLIKE '(?i)data (platform |infrastructure |pipeline )?engineer|analytics engineer|\\betl\\b|data warehouse|business intelligence|\\bbi\\b|power bi|tableau|data analyst|analytics|data scien|machine learning|\\bml\\b|\\bai\\b|artificial intelligence' THEN 'Data / BI / AI'
   WHEN {{ col }} RLIKE '(?i)software (engineer|developer)|backend|full stack|python|application developer' THEN 'Software'
-  WHEN {{ col }} RLIKE '(?i)technical program manager|program analyst|product owner|technical product manager' THEN 'Technical program / product'
   ELSE 'Other'
 END
 {%- endmacro %}
