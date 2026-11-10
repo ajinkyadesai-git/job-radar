@@ -28,6 +28,10 @@ select
     {{ seniority('title') }}                              as seniority,
     {{ is_intern('title', 'employment_type') }}           as is_intern,
     {{ is_target_level('title') }}                        as is_target_level,
+    {{ with_context('description_text', 'visa_hit') }}    as visa_blocker_match,
+    visa_hit <> ''                                        as has_visa_blocker,
+    {{ with_context('description_text', 'perm_hit') }}    as perm_ad_match,
+    perm_hit <> ''                                        as is_perm_style_ad,
     coalesce(employment_type, 'FullTime') in ('FullTime', 'Contract')
         and not {{ is_intern('title', 'employment_type') }} as is_fte_or_contract,
     -- Yearly USD salary where the board gives one; hourly is scaled by 2,080 hours.
@@ -42,4 +46,11 @@ select
         when upper(salary_interval) in ('HOUR', 'HOURLY') then salary_max * 2080
     end                                                   as salary_max_yearly_usd,
     datediff(coalesce(closed_on, last_seen), first_seen)  as days_open
-from {{ source('silver', 'postings') }}
+from (
+    -- Each regex runs once per posting.
+    select
+        *,
+        regexp_extract(coalesce(description_text, ''), {{ visa_blocker_regex() }}, 1) as visa_hit,
+        regexp_extract(coalesce(description_text, ''), {{ perm_ad_regex() }}, 1)       as perm_hit
+    from {{ source('silver', 'postings') }}
+)

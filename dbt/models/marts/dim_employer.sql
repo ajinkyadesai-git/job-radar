@@ -15,6 +15,7 @@ lca as (
         count_if(is_certified)                    as certified,
         percentile_approx(wage_from_yearly, 0.5)  as median_filed_wage,
         max(decision_date)                        as last_decision,
+        avg(case when is_h1b_dependent then 1.0 else 0.0 end) as h1b_dependent_share,
         array_join(slice(array_sort(collect_set(employer_name)), 1, 5), ' | ') as filer_names
     from {{ ref('fct_lca') }}
     where company is not null
@@ -34,6 +35,10 @@ select
     round(l.certified / nullif(l.filings, 0), 3)  as certified_rate,
     l.median_filed_wage,
     l.last_decision,
+    round(l.h1b_dependent_share, 3)               as h1b_dependent_share,
+    -- H-1B dependent employers (mostly staffing and IT consulting firms) file for most of
+    -- their staff; DOL flags them on each filing.
+    coalesce(l.h1b_dependent_share, 0) >= 0.5     as is_h1b_dependent_employer,
     l.filer_names
 from {{ ref('companies') }} as c
 left join postings as p on p.company = c.slug

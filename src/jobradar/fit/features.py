@@ -69,14 +69,18 @@ def _connect():
 
 
 def fetch_candidates(env: str = "prod", connection=None) -> pd.DataFrame:
-    """Open postings you could apply to: the same rules as the Today list, but not only new."""
+    """Open postings you could apply to: the same rules as the Today list, but not only new.
+
+    Postings that say they won't sponsor, or read like green-card ads, are left out (CR11).
+    """
     own = connection is None
     connection = connection or _connect()
     try:
         with connection.cursor() as cur:
             cur.execute(
                 f"SELECT {', '.join(FEATURE_COLUMNS)}, url FROM {gold_table(env)} "
-                "WHERE is_open AND is_us AND is_fte_or_contract AND is_target_level AND is_sponsor"
+                "WHERE is_open AND is_us AND is_fte_or_contract AND is_target_level AND is_sponsor "
+                "AND NOT has_visa_blocker AND NOT is_perm_style_ad"
             )
             return pd.DataFrame(cur.fetchall(), columns=[*FEATURE_COLUMNS, "url"])
     finally:

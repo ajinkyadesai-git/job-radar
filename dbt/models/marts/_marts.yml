@@ -15,6 +15,9 @@ models:
                 values: [greenhouse, ashby]
       - name: is_sponsor
         data_tests: [not_null]
+      - name: is_h1b_dependent_employer
+        description: Half or more of its LCA filings are flagged H-1B dependent (often staffing firms).
+        data_tests: [not_null]
       - name: certified_rate
         description: Share of the company's LCA filings that DOL certified (0 to 1).
 
@@ -37,6 +40,12 @@ models:
       - name: is_open
         data_tests: [not_null]
       - name: is_us
+        data_tests: [not_null]
+      - name: has_visa_blocker
+        description: Posting text says it won't sponsor, needs U.S. citizenship or a clearance.
+        data_tests: [not_null]
+      - name: is_perm_style_ad
+        description: Reads like a green-card (PERM) labor-certification ad.
         data_tests: [not_null]
 
   - name: fct_lca
@@ -78,6 +87,12 @@ models:
                 to: ref('fct_postings')
                 field: posting_key
       - name: role_family
+        data_tests: [not_null]
+
+  - name: audit_dropped_postings
+    description: Open US postings dropped by a visa rule, with the phrase that matched.
+    columns:
+      - name: matched_text
         data_tests: [not_null]
 
   - name: mart_sponsor_stats
