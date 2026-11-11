@@ -194,7 +194,7 @@ def _read_resume(path: str) -> str:
 
     p = Path(path)
     if not p.exists():
-        print(f"note: no resume at {path}; training without the resume-match feature")
+        print(f"note: no resume at {path}; continuing without the resume (it stays local)")
         return ""
     return p.read_text(errors="ignore")
 
@@ -355,6 +355,7 @@ def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
             runner,
             env=args.env,
             searcher=_searcher(),
+            resume_text=_read_resume(args.resume) or None,
             **kwargs,
         )
     finally:
@@ -424,6 +425,11 @@ def main(argv: list[str] | None = None) -> int:
     ak.add_argument("--env", choices=["dev", "prod"], default="prod")
     ak.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ak.add_argument("--show-sql", action="store_true", help="print each query")
+    ak.add_argument(
+        "--resume",
+        default="data/resume/resume.txt",
+        help="plain-text resume for the resume_fit tool (read locally, never uploaded)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
