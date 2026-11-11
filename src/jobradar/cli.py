@@ -376,6 +376,54 @@ def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
+    from jobradar.agent.tools import DatabricksRunner
+    from jobradar.evals.runner import load_questions, run_evals, truth
+
+    questions = load_questions(only=args.only)
+    if not questions:
+        sys.exit(f"no questions match --only {args.only!r}")
+    runner = DatabricksRunner(env=args.env)
+    try:
+        if args.truth_only:
+            bad = 0
+            for q in questions:
+                rows, error = truth(q, runner, args.env)
+                if error:
+                    bad += 1
+                    print(f"{q.id} ERROR {error}")
+                elif rows is not None:
+                    shown = [r[0] if len(r) == 1 else list(r) for r in rows[:5]]
+                    more = f" (+{len(rows) - 5} more)" if len(rows) > 5 else ""
+                    print(f"{q.id} {len(rows)} rows: {shown}{more}")
+            print(f"\n{len(questions)} questions, {bad} truth errors (no API calls made)")
+            return 1 if bad else 0
+
+        import anthropic
+
+        from jobradar.agent.assistant import DEFAULT_MODEL, ask
+
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("Set ANTHROPIC_API_KEY in .env (never paste it in chat or commit it)")
+        model = args.model or DEFAULT_MODEL
+        client, schema = anthropic.Anthropic(), runner.describe()
+        searcher, resume = _searcher(), _read_resume(args.resume) or None
+
+        def ask_fn(question: str):
+            return ask(
+                question, client, runner, env=args.env, model=model, schema_text=schema,
+                searcher=searcher, resume_text=resume,
+            )  # fmt: skip
+
+        print(f"asking {len(questions)} questions with {model}…")
+        outcomes, md = run_evals(questions, ask_fn, runner, args.env, model)
+    finally:
+        runner.close()
+    print("\n" + md.read_text())
+    print(f"scores: {md}  (also evals/results/latest.md); full answers: {md.with_suffix('.jsonl')}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -430,6 +478,12 @@ def main(argv: list[str] | None = None) -> int:
         default="data/resume/resume.txt",
         help="plain-text resume for the resume_fit tool (read locally, never uploaded)",
     )
+    ev = sub.add_parser("eval", help="run the eval questions and score the assistant")
+    ev.add_argument("--only", help="categories or IDs, comma-separated (e.g. Safety or C01,X02)")
+    ev.add_argument("--truth-only", action="store_true", help="check the Expected SQL only")
+    ev.add_argument("--env", choices=["dev", "prod"], default="prod")
+    ev.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
+    ev.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -453,6 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         "fit-score": cmd_fit_score,
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
+        "eval": cmd_eval,
     }
     return commands[args.cmd](args, settings)
 

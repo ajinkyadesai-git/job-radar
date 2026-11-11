@@ -230,3 +230,6 @@ ingest-policy.json
 
 # macOS
 .DS_Store
+
+# Eval runs: full answers stay local; the summary is committed
+evals/results/*.jsonl
