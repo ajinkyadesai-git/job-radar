@@ -81,6 +81,7 @@ Rules:
 class Step:
     kind: str  # "tool" or "answer"
     detail: str
+    tool: str = ""  # which tool, for kind == "tool"
 
 
 @dataclass
@@ -145,7 +146,7 @@ def ask(
         tool_results = []
         for use in tool_uses:
             output, detail = _run_tool(handlers, use.name, use.input or {})
-            result.steps.append(Step("tool", detail))
+            result.steps.append(Step("tool", detail, use.name))
             tool_results.append({"type": "tool_result", "tool_use_id": use.id, "content": output})
         messages.append({"role": "user", "content": tool_results})
     else:
