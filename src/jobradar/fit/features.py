@@ -68,10 +68,16 @@ def _connect():
     )
 
 
+# Same cutoff as the Today list: my_years_experience (3) + stretch_years (2) in
+# dbt/dbt_project.yml. Jobs asking more years than this are not scored or queued.
+MAX_YEARS_ALLOWED = 5
+
+
 def fetch_candidates(env: str = "prod", connection=None) -> pd.DataFrame:
     """Open postings you could apply to: the same rules as the Today list, but not only new.
 
-    Postings that say they won't sponsor, or read like green-card ads, are left out (CR11).
+    Postings that say they won't sponsor, read like green-card ads (CR11), or ask for more
+    than MAX_YEARS_ALLOWED years of experience are left out.
     """
     own = connection is None
     connection = connection or _connect()
@@ -80,7 +86,8 @@ def fetch_candidates(env: str = "prod", connection=None) -> pd.DataFrame:
             cur.execute(
                 f"SELECT {', '.join(FEATURE_COLUMNS)}, url FROM {gold_table(env)} "
                 "WHERE is_open AND is_us AND is_fte_or_contract AND is_target_level AND is_sponsor "
-                "AND NOT has_visa_blocker AND NOT is_perm_style_ad"
+                "AND NOT has_visa_blocker AND NOT is_perm_style_ad "
+                f"AND coalesce(years_required, 0) <= {MAX_YEARS_ALLOWED}"
             )
             return pd.DataFrame(cur.fetchall(), columns=[*FEATURE_COLUMNS, "url"])
     finally:

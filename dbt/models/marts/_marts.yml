@@ -90,6 +90,12 @@ models:
                 field: posting_key
       - name: role_family
         data_tests: [not_null]
+      - name: reach
+        description: Within reach (asks up to my_years_experience) or Stretch (up to +stretch_years).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Within reach', 'Stretch']
 
   - name: audit_dropped_postings
     description: Open US postings dropped by a visa rule, with the phrase that matched.
