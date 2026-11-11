@@ -92,7 +92,7 @@ def test_assistant_offers_and_runs_the_search_tool(tmp_path):
     client = Client()
     client.messages = client
     r = ask("Which jobs need NetSuite?", client, FakeRunner(), searcher=idx)
-    assert [t["name"] for t in sent[0]["tools"]] == ["run_sql", "search_job_text"]
+    assert [t["name"] for t in sent[0]["tools"]][:2] == ["run_sql", "search_job_text"]
     tool_result = sent[1]["messages"][2]["content"][0]["content"]
     assert tool_result.startswith("<search_result") and "https://x/n1" in tool_result
     assert r.queries[0]["detail"].endswith("postings") and r.answer.startswith("Ramp")

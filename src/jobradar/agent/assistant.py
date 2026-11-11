@@ -1,7 +1,7 @@
-"""The assistant loop: Claude reads the question, calls run_sql as needed, then answers.
+"""The assistant loop: Claude reads the question, calls its tools as needed, then answers.
 
-Small and explicit on purpose: a capped number of steps, one tool, every query checked by
-the SQL guard, every tool result marked as untrusted data, and a trace of each step.
+Small and explicit on purpose: a capped number of steps, a few read-only tools, every query
+checked by the SQL guard, every tool result marked as untrusted data, and a trace of each step.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from jobradar.agent.job_tools import RESUME_FIT_TOOL, SALARY_TOOL, ResumeFitTool, SalaryTool
 from jobradar.agent.tools import RUN_SQL_TOOL, SEARCH_TOOL, Runner, Searcher, SearchTool, SqlTool
 
 DEFAULT_MODEL = os.environ.get("JOBRADAR_AGENT_MODEL", "claude-sonnet-5-5")
@@ -29,7 +30,16 @@ Answer only from data you get with your tools. Do not guess numbers.
 - run_sql: counts, rankings, filters, salaries, sponsor statistics (structured columns).
 - search_job_text (when available): what postings say: skills, tools, duties,
   requirements. Quote the passage and give the link for every posting you mention.
-You can combine them, for example search for skills, then look up the companies' filings.
+- resume_fit (when available): how the user's resume compares with one posting: skill
+  match %, skills they have, gaps (quote what the posting says), years required vs theirs.
+  You never see the resume itself, only which listed skills it shows; a skill missing from
+  the result may still be on the resume under another name, so call gaps "not found on
+  your resume", not "you lack".
+- salary_check: one posting's posted salary vs similar open postings and the company's H-1B
+  filed wages for similar titles. Use it for "is this pay fair" or "what does this pay".
+Both resume_fit and salary_check take a posting_key: get it from search_job_text results
+or select posting_key with run_sql. Check at most 4 postings per question with them.
+You can combine tools, for example search for skills, then check fit for the top results.
 If the data cannot answer the question, say so plainly and say what data would be needed.
 
 The tables (Databricks SQL, gold layer):
@@ -96,12 +106,21 @@ def ask(
     max_steps: int = MAX_STEPS,
     schema_text: str | None = None,
     searcher: Searcher | None = None,
+    resume_text: str | None = None,
 ) -> AskResult:
-    """client: an anthropic.Anthropic() (or a test double with messages.create)."""
+    """client: an anthropic.Anthropic() (or a test double with messages.create).
+
+    searcher and resume_text are optional: without them the search and resume_fit tools are
+    simply not offered to the model.
+    """
     started = time.time()
-    tool = SqlTool(runner, env=env)
-    search = SearchTool(searcher) if searcher is not None else None
-    tools = [RUN_SQL_TOOL] + ([SEARCH_TOOL] if search else [])
+    handlers: dict[str, tuple[dict, object]] = {"run_sql": (RUN_SQL_TOOL, SqlTool(runner, env=env))}
+    if searcher is not None:
+        handlers["search_job_text"] = (SEARCH_TOOL, SearchTool(searcher))
+    handlers["salary_check"] = (SALARY_TOOL, SalaryTool(runner, env=env))
+    if resume_text and resume_text.strip():
+        handlers["resume_fit"] = (RESUME_FIT_TOOL, ResumeFitTool(runner, resume_text, env=env))
+    tools = [spec for spec, _ in handlers.values()]
     system = SYSTEM.format(schema=schema_text if schema_text is not None else runner.describe())
     messages: list[dict] = [{"role": "user", "content": question}]
     result = AskResult(question=question, answer="", model=model)
@@ -125,17 +144,7 @@ def ask(
             break
         tool_results = []
         for use in tool_uses:
-            args = use.input or {}
-            if use.name == "run_sql":
-                output = tool(args.get("sql", ""))
-                detail = tool.calls[-1].detail
-            elif use.name == "search_job_text" and search is not None:
-                output = search(
-                    args.get("query", ""), args.get("k", 8), args.get("my_level_only", True)
-                )
-                detail = search.calls[-1].detail
-            else:
-                output, detail = f"Unknown tool {use.name}", "unknown tool"
+            output, detail = _run_tool(handlers, use.name, use.input or {})
             result.steps.append(Step("tool", detail))
             tool_results.append({"type": "tool_result", "tool_use_id": use.id, "content": output})
         messages.append({"role": "user", "content": tool_results})
@@ -167,9 +176,25 @@ def ask(
         if not result.answer:
             result.answer = "I could not produce an answer; see the trace for the tool results."
 
-    result.queries = [asdict(c) for c in tool.calls + (search.calls if search else [])]
+    result.queries = [asdict(c) for _, obj in handlers.values() for c in obj.calls]
     result.seconds = round(time.time() - started, 1)
     return result
+
+
+def _run_tool(handlers: dict, name: str, args: dict) -> tuple[str, str]:
+    """Call a tool with only the arguments its schema declares; never raise into the loop."""
+    if name not in handlers:
+        return f"Unknown tool {name}", "unknown tool"
+    spec, obj = handlers[name]
+    allowed = spec["input_schema"]["properties"]
+    kwargs = {k: v for k, v in args.items() if k in allowed}
+    missing = [k for k in spec["input_schema"].get("required", []) if k not in kwargs]
+    if missing:
+        return f"Missing argument(s) for {name}: {', '.join(missing)}", f"{name}: missing args"
+    before = len(obj.calls)
+    output = obj(**kwargs)
+    detail = obj.calls[-1].detail if len(obj.calls) > before else name
+    return output, detail
 
 
 def save_trace(result: AskResult, folder: str | Path = "data/traces") -> Path:

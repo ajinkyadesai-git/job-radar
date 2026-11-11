@@ -1,4 +1,4 @@
-"""The assistant's one tool, run_sql, and how its results are shown to the model."""
+"""The assistant's run_sql and search_job_text tools, and how results are shown to the model."""
 
 from __future__ import annotations
 
@@ -74,6 +74,7 @@ class SearchTool:
         self.calls.append(ToolCall(f"search: {query}", True, f"{len(hits)} postings"))
         rows = [
             {
+                "posting_key": h.posting_key,
                 "company": h.company,
                 "title": h.title,
                 "url": h.url,
