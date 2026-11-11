@@ -3,6 +3,13 @@ version: "1.0.0"
 profile: job_radar
 config-version: 2
 
+vars:
+  # Your experience for the Today list and labeling queue. US experience counts most: about
+  # 1 to 2 years in the US plus 2.5 in India, so 3 is used. Jobs asking up to 3 years are
+  # "Within reach", up to 3 + 2 = 5 are "Stretch", 6 or more are hidden.
+  my_years_experience: 3
+  stretch_years: 2
+
 model-paths: ["models"]
 macro-paths: ["macros"]
 seed-paths: ["seeds"]

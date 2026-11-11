@@ -32,11 +32,15 @@ What the main columns mean:
   seniority, is_target_level (not intern, not Staff+, not people manager), is_fte_or_contract,
   has_visa_blocker (posting says it won't sponsor / needs citizenship / clearance),
   is_sponsor (company has H-1B filings), salary_min_yearly_usd / salary_max_yearly_usd,
-  first_seen, description_text, fit_score (0-1: how likely this user is to apply, from their
-  personal model trained on their labels; null when not scored). Sort by fit_score desc
+  first_seen, description_text, years_required (largest "N years" figure in the posting; the
+  user has about 3 years that count, 1-2 of them in the US: up to 3 is within reach, 4-5 is
+  a stretch, 6+ is out of reach), fit_score (0-1: how
+  likely this user is to apply, from their personal model trained on their labels; null when
+  not scored). Sort by fit_score desc
   when the user asks what to apply to or what fits them.
 - mart_new_postings: the "Today" list: open US roles at the user's level at sponsors, new in
-  the last 7 days, without visa blockers; has fit_score.
+  the last 7 days, without visa blockers, asking at most 5 years; has fit_score,
+  years_required and reach ('Within reach' or 'Stretch').
 - dim_employer: one row per tracked company: open_postings, filings, certified_rate (0-1),
   median_filed_wage (yearly USD offered on H-1B filings), is_h1b_dependent_employer.
 - mart_sponsor_stats: per company and SOC occupation: filings, certified_rate, p25/median/p75

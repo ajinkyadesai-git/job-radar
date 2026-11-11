@@ -99,3 +99,17 @@ case when {{ match_col }} <> '' then
             length({{ match_col }}) + 160)
 end
 {%- endmacro %}
+
+{#
+  Years of experience the posting asks for: the largest figure before "years" / "yrs"
+  ("5+ years", "3-5 years" -> 3, "at least 7 yrs"), ignoring figures above 20; null when the
+  posting gives none. Same rule as jobradar.fit.features.years_required.
+#}
+{% macro years_required(col) -%}
+array_max(filter(
+  transform(
+    regexp_extract_all(coalesce({{ col }}, ''),
+      '(?i)\\b(\\d{1,2})\\s*\\+?\\s*(?:(?:-|–|to)\\s*\\d{1,2}\\s*\\+?\\s*)?(?:years|yrs)\\b', 1),
+    x -> cast(x as int)),
+  y -> y between 1 and 20))
+{%- endmacro %}

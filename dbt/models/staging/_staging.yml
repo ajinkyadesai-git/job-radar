@@ -87,3 +87,18 @@ unit_tests:
         - { posting_key: "greenhouse:r2", is_us: true, role_family: Other, seniority: Senior, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
         - { posting_key: "ashby:r3", is_us: true, role_family: Data / BI / AI, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
         - { posting_key: "ashby:a4", is_us: true, role_family: Data / BI / AI, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
+
+  - name: years_required_from_description
+    description: Largest "N years" figure in the description; ranges take the low end; 120 years is ignored.
+    model: stg_postings
+    given:
+      - input: source('silver', 'postings')
+        rows:
+          - { source: greenhouse, posting_id: y1, title: Solution Architect, location: "San Francisco, CA", employment_type: null, description_text: "8+ years in business intelligence, including 3+ years in a customer-facing role." }
+          - { source: greenhouse, posting_id: y2, title: Data Engineer, location: "Austin, TX", employment_type: null, description_text: "You have 3-5 years of experience with SQL. Founded 120 years ago." }
+          - { source: ashby, posting_id: y3, title: Data Analyst, location: "Seattle, WA", employment_type: null, description_text: "No figure here." }
+    expect:
+      rows:
+        - { posting_key: "greenhouse:y1", years_required: 8 }
+        - { posting_key: "greenhouse:y2", years_required: 3 }
+        - { posting_key: "ashby:y3", years_required: null }

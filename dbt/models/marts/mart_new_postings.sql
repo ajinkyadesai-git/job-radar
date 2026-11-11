@@ -1,7 +1,9 @@
 -- The "Today" list: open US full-time or contract roles at your level (no interns, nothing
 -- Staff / principal or above) at companies that sponsor, first seen in the last 7 days.
 -- Postings that say they won't sponsor, or read like green-card (PERM) ads, are left out;
--- gold.audit_dropped_postings lists them with the phrase that matched.
+-- gold.audit_dropped_postings lists them with the phrase that matched. Jobs asking more
+-- than my_years_experience + stretch_years (dbt_project.yml) are left out; the rest are
+-- marked Within reach or Stretch.
 -- The first load day is left out: everything was "new" that day.
 with first_load as (
     select min(first_seen) as day from {{ ref('stg_postings') }}
@@ -17,6 +19,11 @@ select
     p.url,
     p.role_family,
     p.seniority,
+    p.years_required,
+    case
+        when coalesce(p.years_required, 0) <= {{ var('my_years_experience') }} then 'Within reach'
+        else 'Stretch'
+    end                                as reach,
     p.employment_type,
     p.salary_min_yearly_usd,
     p.salary_max_yearly_usd,
@@ -33,6 +40,7 @@ where p.is_open
   and p.is_target_level
   and not p.has_visa_blocker
   and not p.is_perm_style_ad
+  and coalesce(p.years_required, 0) <= {{ var('my_years_experience') }} + {{ var('stretch_years') }}
   and p.is_sponsor
   and p.first_seen > first_load.day
   and p.first_seen >= date_sub(current_date(), 7)

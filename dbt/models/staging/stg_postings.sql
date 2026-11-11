@@ -28,6 +28,7 @@ select
     {{ seniority('title') }}                              as seniority,
     {{ is_intern('title', 'employment_type') }}           as is_intern,
     {{ is_target_level('title') }}                        as is_target_level,
+    {{ years_required('description_text') }}              as years_required,
     {{ with_context('description_text', 'visa_hit') }}    as visa_blocker_match,
     visa_hit <> ''                                        as has_visa_blocker,
     {{ with_context('description_text', 'perm_hit') }}    as perm_ad_match,
