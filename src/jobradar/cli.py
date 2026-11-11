@@ -12,6 +12,7 @@ jobradar fit-train                 # train the fit model on your labels and repo
 jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
 jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
+jobradar rag-index                 # (re)build the search index over open job descriptions
 """
 
 from __future__ import annotations
@@ -301,6 +302,42 @@ def cmd_fit_score(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_rag_index(args: argparse.Namespace, settings: Settings) -> int:
+    import time
+
+    from jobradar.rag.index import FastEmbedder, build_index, fetch_open_postings
+
+    started = time.time()
+    postings = fetch_open_postings(env=args.env)
+    print(
+        f"{len(postings)} open US postings at sponsors; embedding (first run downloads the model)"
+    )
+
+    def progress(done: int, total: int) -> None:
+        rate = done / max(time.time() - started, 1)
+        left = (total - done) / max(rate, 1e-9)
+        print(f"  embedded {done}/{total} new passages, about {left / 60:.0f} min left", flush=True)
+
+    info = build_index(postings, FastEmbedder(), progress=progress)
+    print(
+        f"indexed {info['chunks']} passages from {info['postings']} postings "
+        f"({info['embedded']} embedded, {info['reused']} reused) with {info['model']} "
+        f"in {time.time() - started:.0f}s; saved data/rag/ (git-ignored)"
+    )
+    return 0
+
+
+def _searcher():
+    from pathlib import Path
+
+    if not Path("data/rag/index.faiss").exists():
+        print("note: no search index yet (run jobradar rag-index); answering with SQL only")
+        return None
+    from jobradar.rag.index import FastEmbedder, SearchIndex
+
+    return SearchIndex(FastEmbedder())
+
+
 def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
     import anthropic
 
@@ -312,7 +349,14 @@ def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
     runner = DatabricksRunner(env=args.env)
     try:
         kwargs = {"model": args.model} if args.model else {}
-        result = ask(args.question, anthropic.Anthropic(), runner, env=args.env, **kwargs)
+        result = ask(
+            args.question,
+            anthropic.Anthropic(),
+            runner,
+            env=args.env,
+            searcher=_searcher(),
+            **kwargs,
+        )
     finally:
         runner.close()
     print(result.answer)
@@ -325,6 +369,7 @@ def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
         f"{result.model}: {len(result.queries)} queries, {result.input_tokens} input + "
         f"{result.output_tokens} output tokens, {result.seconds}s"
         + (" (stopped at step limit)" if result.stopped_early else "")
+        + (f", stop: {result.stop_reason}" if result.stop_reason not in ("end_turn", "") else "")
     )
     print(f"trace: {save_trace(result)}")
     return 0
@@ -372,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
     fs = sub.add_parser("fit-score", help="score open jobs and upload the scores")
     fs.add_argument("--labels", default="data/labels/daily_labels.csv")
     fs.add_argument("--model", default="data/model")
+    ri = sub.add_parser("rag-index", help="build the search index over job descriptions")
+    ri.add_argument("--env", choices=["dev", "prod"], default="prod")
     ak = sub.add_parser("ask", help="ask the AI assistant a question")
     ak.add_argument("question")
     ak.add_argument("--env", choices=["dev", "prod"], default="prod")
@@ -399,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
         "fit-queue": cmd_fit_queue,
         "fit-score": cmd_fit_score,
         "ask": cmd_ask,
+        "rag-index": cmd_rag_index,
     }
     return commands[args.cmd](args, settings)
 

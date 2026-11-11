@@ -12,17 +12,25 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from jobradar.agent.tools import RUN_SQL_TOOL, Runner, SqlTool
+from jobradar.agent.tools import RUN_SQL_TOOL, SEARCH_TOOL, Runner, Searcher, SearchTool, SqlTool
 
 DEFAULT_MODEL = os.environ.get("JOBRADAR_AGENT_MODEL", "claude-sonnet-5-5")
 MAX_STEPS = 6
-MAX_TOKENS = 1500
+MAX_TOKENS = 3000
+FINAL_NUDGE = (
+    "Write your final answer now from the tool results above. Do not call more tools. "
+    "Keep it short: at most 8 postings, one quoted line each."
+)
 
 SYSTEM = """You are Job Radar's assistant. You help a job seeker on an H-1B visa find roles and
 understand which employers sponsor visas and what they pay.
 
-Answer only from data you get with the run_sql tool. Do not guess numbers. If the data cannot
-answer the question, say so plainly and say what data would be needed.
+Answer only from data you get with your tools. Do not guess numbers.
+- run_sql: counts, rankings, filters, salaries, sponsor statistics (structured columns).
+- search_job_text (when available): what postings say: skills, tools, duties,
+  requirements. Quote the passage and give the link for every posting you mention.
+You can combine them, for example search for skills, then look up the companies' filings.
+If the data cannot answer the question, say so plainly and say what data would be needed.
 
 The tables (Databricks SQL, gold layer):
 {schema}
@@ -76,6 +84,7 @@ class AskResult:
     output_tokens: int = 0
     seconds: float = 0.0
     stopped_early: bool = False
+    stop_reason: str = ""
 
 
 def ask(
@@ -86,10 +95,13 @@ def ask(
     model: str = DEFAULT_MODEL,
     max_steps: int = MAX_STEPS,
     schema_text: str | None = None,
+    searcher: Searcher | None = None,
 ) -> AskResult:
     """client: an anthropic.Anthropic() (or a test double with messages.create)."""
     started = time.time()
     tool = SqlTool(runner, env=env)
+    search = SearchTool(searcher) if searcher is not None else None
+    tools = [RUN_SQL_TOOL] + ([SEARCH_TOOL] if search else [])
     system = SYSTEM.format(schema=schema_text if schema_text is not None else runner.describe())
     messages: list[dict] = [{"role": "user", "content": question}]
     result = AskResult(question=question, answer="", model=model)
@@ -99,29 +111,63 @@ def ask(
             model=model,
             max_tokens=MAX_TOKENS,
             system=system,
-            tools=[RUN_SQL_TOOL],
+            tools=tools,
             messages=messages,
         )
         result.input_tokens += resp.usage.input_tokens
         result.output_tokens += resp.usage.output_tokens
         messages.append({"role": "assistant", "content": resp.content})
+        result.stop_reason = resp.stop_reason
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
         if resp.stop_reason != "tool_use" or not tool_uses:
             result.answer = "".join(b.text for b in resp.content if b.type == "text").strip()
-            result.steps.append(Step("answer", f"{len(result.answer)} chars"))
+            result.steps.append(Step("answer", f"{len(result.answer)} chars ({resp.stop_reason})"))
             break
         tool_results = []
         for use in tool_uses:
-            sql = (use.input or {}).get("sql", "")
-            output = tool(sql) if use.name == "run_sql" else f"Unknown tool {use.name}"
-            result.steps.append(Step("tool", tool.calls[-1].detail if tool.calls else output))
+            args = use.input or {}
+            if use.name == "run_sql":
+                output = tool(args.get("sql", ""))
+                detail = tool.calls[-1].detail
+            elif use.name == "search_job_text" and search is not None:
+                output = search(
+                    args.get("query", ""), args.get("k", 8), args.get("my_level_only", True)
+                )
+                detail = search.calls[-1].detail
+            else:
+                output, detail = f"Unknown tool {use.name}", "unknown tool"
+            result.steps.append(Step("tool", detail))
             tool_results.append({"type": "tool_result", "tool_use_id": use.id, "content": output})
         messages.append({"role": "user", "content": tool_results})
     else:
         result.stopped_early = True
-        result.answer = "I stopped after the step limit without a final answer."
 
-    result.queries = [asdict(c) for c in tool.calls]
+    if not result.answer:
+        # Out of steps, or the reply was cut off: one last call with tools switched off.
+        if messages[-1]["role"] == "assistant":
+            messages.pop()  # a cut-off reply (possibly a half-written tool call) is dropped
+        last = messages[-1]
+        if last["role"] == "user" and isinstance(last["content"], list):
+            last["content"] = [*last["content"], {"type": "text", "text": FINAL_NUDGE}]
+        else:
+            messages.append({"role": "user", "content": FINAL_NUDGE})
+        resp = client.messages.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            system=system,
+            tools=tools,
+            tool_choice={"type": "none"},
+            messages=messages,
+        )
+        result.input_tokens += resp.usage.input_tokens
+        result.output_tokens += resp.usage.output_tokens
+        result.stop_reason = resp.stop_reason
+        result.answer = "".join(b.text for b in resp.content if b.type == "text").strip()
+        result.steps.append(Step("answer", f"{len(result.answer)} chars (final, tools off)"))
+        if not result.answer:
+            result.answer = "I could not produce an answer; see the trace for the tool results."
+
+    result.queries = [asdict(c) for c in tool.calls + (search.calls if search else [])]
     result.seconds = round(time.time() - started, 1)
     return result
 

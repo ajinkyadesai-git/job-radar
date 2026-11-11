@@ -155,7 +155,27 @@ def test_loop_lets_the_model_fix_a_refused_query():
     assert "refused" in r.queries[0]["detail"] and r.answer.startswith("About")
 
 
-def test_loop_stops_at_step_limit():
-    client = ScriptedClient([response([block_tool("select 1 from fct_lca")], "tool_use")] * 3)
+def test_loop_stops_at_step_limit_then_answers_with_tools_off():
+    client = ScriptedClient(
+        [response([block_tool("select 1 from fct_lca")], "tool_use")] * 3
+        + [response([block_text("Here is what I found.")], "end_turn")]
+    )
     r = ask("Loop forever", client, FakeRunner(), max_steps=3)
     assert r.stopped_early and len(r.queries) == 3
+    assert r.answer == "Here is what I found."
+    assert client.sent[-1]["tool_choice"] == {"type": "none"}
+
+
+def test_cut_off_reply_gets_a_final_answer():
+    client = ScriptedClient(
+        [
+            response([block_tool("select 1 from fct_lca")], "tool_use"),
+            response([block_tool("select 2 from fct_lca", "t2")], "max_tokens"),
+            response([block_text("Short answer.")], "end_turn"),
+        ]
+    )
+    r = ask("Long question", client, FakeRunner())
+    assert r.answer == "Short answer." and len(r.queries) == 1
+    final_msgs = client.sent[-1]["messages"]
+    assert final_msgs[-1]["role"] == "user" and final_msgs[-2]["role"] == "assistant"
+    assert final_msgs[-1]["content"][-1]["type"] == "text"
