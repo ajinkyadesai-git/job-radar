@@ -62,6 +62,9 @@ unit_tests:
           - { source: greenhouse, posting_id: m1, title: "Manager, Engineering", location: "Bengaluru, IN", employment_type: null }
           - { source: greenhouse, posting_id: m2, title: "Data Science Manager - Fraud", location: "Indianapolis, IN", employment_type: null }
           - { source: greenhouse, posting_id: m3, title: "Technical Program Manager, AI Delivery", location: "United States", employment_type: null }
+          - { source: ashby, posting_id: r1, title: "AI Account Executive, Glass", location: "New York, NY", employment_type: null }
+          - { source: greenhouse, posting_id: r2, title: "Senior Security Engineer, AI Security", location: "Remote - US", employment_type: null }
+          - { source: ashby, posting_id: r3, title: "Partner Applied AI Engineer", location: "San Francisco, CA", employment_type: null }
           - { source: ashby, posting_id: a4, title: Data Engineer, location: "Seattle, WA", employment_type: null, description_text: "We sponsor visas and support relocation. Depending on the position offered, equity may apply. Full-time, 40 hours per week." }
     expect:
       rows:
@@ -80,4 +83,7 @@ unit_tests:
         - { posting_key: "greenhouse:m1", is_us: false, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: false, has_visa_blocker: false, is_perm_style_ad: false }
         - { posting_key: "greenhouse:m2", is_us: true, role_family: Data / BI / AI, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: false, has_visa_blocker: false, is_perm_style_ad: false }
         - { posting_key: "greenhouse:m3", is_us: true, role_family: Technical program / product, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
+        - { posting_key: "ashby:r1", is_us: true, role_family: Other, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
+        - { posting_key: "greenhouse:r2", is_us: true, role_family: Other, seniority: Senior, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
+        - { posting_key: "ashby:r3", is_us: true, role_family: Data / BI / AI, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
         - { posting_key: "ashby:a4", is_us: true, role_family: Data / BI / AI, seniority: Mid or not stated, is_intern: false, is_fte_or_contract: true, is_target_level: true, has_visa_blocker: false, is_perm_style_ad: false }
