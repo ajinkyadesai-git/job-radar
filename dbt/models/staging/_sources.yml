@@ -18,3 +18,12 @@ sources:
         description: One row per DOL LCA case, H-1B, H-1B1 and E-3 (spark/03).
       - name: employer_matches
         description: Tracked company to DOL filer name, exact or approved alias (spark/04).
+
+  - name: ml
+    description: >
+      Fit scores uploaded from the laptop by jobradar fit-score (one number per open job).
+      Personal to the user, so every target reads the same table.
+    database: workspace
+    schema: jobradar_ml
+    tables:
+      - name: fit_scores

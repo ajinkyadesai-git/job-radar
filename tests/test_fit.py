@@ -162,3 +162,16 @@ def test_build_queue_mixes_likely_unsure_random_and_skips_labeled():
     assert q.loc[q["pick"] == "likely yes", "score"].min() > 0.75
     # shuffled: the order does not reveal the model's ranking
     assert not q["score"].is_monotonic_decreasing
+
+
+def test_score_upload_sql_batches_and_rejects_odd_keys():
+    from jobradar.fit.scores import SCORES_TABLE, values_sql
+
+    keys = [f"ashby:{i}" for i in range(2500)]
+    stmts = values_sql(keys, [0.5] * 2500, "abc-l160")
+    assert len(stmts) == 3 and stmts[0].startswith(f"INSERT INTO {SCORES_TABLE} VALUES")
+    assert "('ashby:0', 0.500000, 'abc-l160', current_timestamp())" in stmts[0]
+    with pytest.raises(ValueError):
+        values_sql(["ashby:x'); drop table t; --"], [0.1], "v")
+    with pytest.raises(ValueError):
+        values_sql(["ashby:1"], [0.1, 0.2], "v")
