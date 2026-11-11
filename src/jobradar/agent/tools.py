@@ -36,6 +36,60 @@ UNTRUSTED_NOTE = (
 )
 
 
+SEARCH_TOOL = {
+    "name": "search_job_text",
+    "description": (
+        "Search the text of open US job postings at H-1B sponsors by meaning, for questions "
+        "about skills, tools, duties or requirements (for example 'NetSuite and Python "
+        "integrations', 'dbt and Snowflake', 'customer-facing AI deployments'). Returns the "
+        "best matching passage from each posting with its title, company, link, years "
+        "required and fit_score. Quote passages to support your answer and cite the link. "
+        "By default only postings at the user's level without visa blockers are searched."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "What to look for, in plain words"},
+            "k": {"type": "integer", "description": "How many postings (1-10)", "default": 6},
+            "my_level_only": {"type": "boolean", "default": True},
+        },
+        "required": ["query"],
+    },
+}
+PASSAGE_CHARS = 350
+
+
+class Searcher(Protocol):
+    def search(self, query: str, k: int = 8, my_level_only: bool = True) -> list: ...
+
+
+@dataclass
+class SearchTool:
+    searcher: Searcher
+    calls: list[ToolCall] = field(default_factory=list)
+
+    def __call__(self, query: str, k: int = 6, my_level_only: bool = True) -> str:
+        k = max(1, min(int(k or 6), 10))
+        hits = self.searcher.search(query, k=k, my_level_only=bool(my_level_only))
+        self.calls.append(ToolCall(f"search: {query}", True, f"{len(hits)} postings"))
+        rows = [
+            {
+                "company": h.company,
+                "title": h.title,
+                "url": h.url,
+                "location": h.location,
+                "years_required": h.years_required,
+                "fit_score": h.fit_score,
+                "match": h.score,
+                "passage": h.passage[:PASSAGE_CHARS]
+                + ("…" if len(h.passage) > PASSAGE_CHARS else ""),
+            }
+            for h in hits
+        ]
+        body = json.dumps({"postings": rows}, default=str, ensure_ascii=False)
+        return f'<search_result note="{UNTRUSTED_NOTE}">\n{body}\n</search_result>'
+
+
 class Runner(Protocol):
     def run(self, sql: str) -> tuple[list[str], list[tuple]]: ...
     def describe(self) -> str: ...
