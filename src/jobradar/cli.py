@@ -10,6 +10,7 @@ jobradar databricks-deploy         # create or update the daily Databricks job f
 jobradar databricks-run            # start the daily job and wait for it to finish
 jobradar fit-train                 # train the fit model on your labels and report precision/recall
 jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
+jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 """
 
 from __future__ import annotations
@@ -272,6 +273,35 @@ def cmd_fit_queue(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
+    import anthropic
+
+    from jobradar.agent.assistant import ask, save_trace
+    from jobradar.agent.tools import DatabricksRunner
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        sys.exit("Set ANTHROPIC_API_KEY in .env (never paste it in chat or commit it)")
+    runner = DatabricksRunner(env=args.env)
+    try:
+        kwargs = {"model": args.model} if args.model else {}
+        result = ask(args.question, anthropic.Anthropic(), runner, env=args.env, **kwargs)
+    finally:
+        runner.close()
+    print(result.answer)
+    print("\n---")
+    for i, q in enumerate(result.queries, 1):
+        print(f"query {i}: {q['detail']}")
+        if args.show_sql:
+            print("  " + q["sql"].replace("\n", "\n  "))
+    print(
+        f"{result.model}: {len(result.queries)} queries, {result.input_tokens} input + "
+        f"{result.output_tokens} output tokens, {result.seconds}s"
+        + (" (stopped at step limit)" if result.stopped_early else "")
+    )
+    print(f"trace: {save_trace(result)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -311,14 +341,20 @@ def main(argv: list[str] | None = None) -> int:
     fq.add_argument("--env", choices=["dev", "prod"], default="prod")
     fq.add_argument("-n", type=int, default=40, help="how many postings")
     fq.add_argument("--out", help="default data/labels/queue_<today>.csv")
+    ak = sub.add_parser("ask", help="ask the AI assistant a question")
+    ak.add_argument("question")
+    ak.add_argument("--env", choices=["dev", "prod"], default="prod")
+    ak.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
+    ak.add_argument("--show-sql", action="store_true", help="print each query")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    if not args.verbose:  # the Databricks SQL client logs every HTTP call at INFO
-        logging.getLogger("databricks").setLevel(logging.WARNING)
+    if not args.verbose:  # these clients log every HTTP call at INFO
+        for noisy in ("databricks", "httpx", "httpx2", "anthropic"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
     overrides = {"dest": args.dest} if getattr(args, "dest", None) else {}
     settings = get_settings(**overrides)
     commands = {
@@ -330,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         "databricks-run": cmd_databricks_run,
         "fit-train": cmd_fit_train,
         "fit-queue": cmd_fit_queue,
+        "ask": cmd_ask,
     }
     return commands[args.cmd](args, settings)
 
