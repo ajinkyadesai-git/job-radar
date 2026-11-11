@@ -26,6 +26,7 @@ dev = [
     "ruff>=0.6",
     "job-radar[dol]",
     "scikit-learn>=1.5,<2",
+    "sqlglot>=25",
 ]
 dol = [
     "pandas>=2.2,<3",
@@ -39,6 +40,11 @@ ml = [
     "scikit-learn>=1.5,<2",
     "pandas>=2.2,<3",
     "joblib>=1.4",
+    "databricks-sql-connector>=3.3,<5",
+]
+agent = [
+    "anthropic>=0.70,<3",
+    "sqlglot>=25",
     "databricks-sql-connector>=3.3,<5",
 ]
 dbt = [
