@@ -10,6 +10,7 @@ jobradar databricks-deploy         # create or update the daily Databricks job f
 jobradar databricks-run            # start the daily job and wait for it to finish
 jobradar fit-train                 # train the fit model on your labels and report precision/recall
 jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
+jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 """
 
@@ -273,6 +274,33 @@ def cmd_fit_queue(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_fit_score(args: argparse.Namespace, settings: Settings) -> int:
+    from pathlib import Path
+
+    import joblib
+
+    from jobradar.fit.features import _connect, fetch_candidates
+    from jobradar.fit.labels import read_labels
+    from jobradar.fit.model import predict_proba
+    from jobradar.fit.scores import SCORES_TABLE, model_version, upload_scores
+
+    model_file = Path(args.model) / "fit_model.joblib"
+    pipe = joblib.load(model_file)
+    version = model_version(model_file, len(read_labels(args.labels)))
+    conn = _connect()
+    try:
+        cands = fetch_candidates(env="prod", connection=conn)
+        scores = predict_proba(pipe, cands)
+        n = upload_scores(conn, list(cands["posting_key"]), list(scores), version)
+    finally:
+        conn.close()
+    top = cands.assign(score=scores).nlargest(5, "score")
+    print(f"scored {n} open jobs with model {version}; uploaded to {SCORES_TABLE}")
+    for _, r in top.iterrows():
+        print(f"  {r['score']:.2f}  {r['company']}: {r['title']}")
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
     import anthropic
 
@@ -341,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
     fq.add_argument("--env", choices=["dev", "prod"], default="prod")
     fq.add_argument("-n", type=int, default=40, help="how many postings")
     fq.add_argument("--out", help="default data/labels/queue_<today>.csv")
+    fs = sub.add_parser("fit-score", help="score open jobs and upload the scores")
+    fs.add_argument("--labels", default="data/labels/daily_labels.csv")
+    fs.add_argument("--model", default="data/model")
     ak = sub.add_parser("ask", help="ask the AI assistant a question")
     ak.add_argument("question")
     ak.add_argument("--env", choices=["dev", "prod"], default="prod")
@@ -366,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         "databricks-run": cmd_databricks_run,
         "fit-train": cmd_fit_train,
         "fit-queue": cmd_fit_queue,
+        "fit-score": cmd_fit_score,
         "ask": cmd_ask,
     }
     return commands[args.cmd](args, settings)

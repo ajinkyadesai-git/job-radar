@@ -23,7 +23,8 @@ select
     p.first_seen,
     p.company_lca_filings,
     p.company_certified_rate,
-    p.company_median_filed_wage
+    p.company_median_filed_wage,
+    p.fit_score
 from {{ ref('fct_postings') }} as p
 cross join first_load
 where p.is_open

@@ -41,6 +41,8 @@ models:
         data_tests: [not_null]
       - name: is_us
         data_tests: [not_null]
+      - name: fit_score
+        description: 0-1 chance you would apply, from your fit model (jobradar fit-score); null if not scored.
       - name: has_visa_blocker
         description: Posting text says it won't sponsor, needs U.S. citizenship or a clearance.
         data_tests: [not_null]
