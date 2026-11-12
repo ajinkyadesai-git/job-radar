@@ -237,7 +237,9 @@ def test_governance_quality_and_evals_skills():
     )
     assert {"Data quality", "AI governance", "LLM evals"} <= set(find_skills(jd))
     # look-alikes that must not match
-    for text in ("We value quality of life.", "You will evaluate candidates.",
-                 "Governance of the data warehouse."):
+    for text in (
+        "We value quality of life.",
+        "You will evaluate candidates.",
+        "Governance of the data warehouse.",
+    ):
         assert not {"Data quality", "AI governance", "LLM evals"} & set(find_skills(text))
-
