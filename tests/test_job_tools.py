@@ -220,3 +220,26 @@ def test_title_filings_fall_back_to_the_last_two_words():
     lca = [q.lower() for q in runner.ran if "fct_lca" in q]
     assert len(lca) == 2 and "'%data%'" not in lca[1] and "'%integration%'" in lca[1]
     assert '"title_words_matched": ["integration", "engineer"]' in out
+
+
+def test_my_added_skills():
+    found = find_skills("Own Fivetran syncs and Okta provisioning; support SOX controls.")
+    assert {"Fivetran", "Okta", "SOX controls"} <= set(found)
+    assert "Okta" not in find_skills("We are okay with remote")  # whole words only
+
+
+def test_governance_quality_and_evals_skills():
+    # Lines in the style of the Humana posting; swap in 2-3 real lines from it if you like
+    jd = (
+        "Build validation checks and data-quality monitoring for clinical data pipelines. "
+        "Partner with Responsible AI and model risk teams on AI governance. "
+        "Design LLM evaluation and agentic evals for our assistants."
+    )
+    assert {"Data quality", "AI governance", "LLM evals"} <= set(find_skills(jd))
+    # look-alikes that must not match
+    for text in (
+        "We value quality of life.",
+        "You will evaluate candidates.",
+        "Governance of the data warehouse.",
+    ):
+        assert not {"Data quality", "AI governance", "LLM evals"} & set(find_skills(text))
