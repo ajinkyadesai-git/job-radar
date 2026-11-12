@@ -4,17 +4,20 @@ Open-source pipeline and AI agent that finds new job postings every day, scores 
 one fits you, and shows how each employer hires and pays using public Department of Labor (DOL)
 filings.
 
-> **Status: Milestone 1 of 6 (foundations and ingest).** Daily ingestion from Greenhouse and
-> Ashby job boards into S3 is built and tested with mocked APIs. Everything below the ingest
-> layer is planned; see the [roadmap](#roadmap).
+> **Status: Milestone 4 of 6 (fit model, AI assistant, evals).** Daily ingest, the Databricks
+> lakehouse, dbt gold models with CI, a personal fit model and a read-only Claude assistant
+> with SQL, description search, resume-fit and salary tools are built. The assistant passes
+> **56 of 57** eval questions, including all safety and honesty questions
+> ([results](#assistant-and-evals)). Serving (API, web app, MCP) is next; see the
+> [roadmap](#roadmap).
 
 ## What it will do
 
-- Pull job postings daily from public Greenhouse and Ashby job boards for 20 to 30 companies.
+- Pull job postings daily from public Greenhouse and Ashby job boards for 74 companies.
 - Model postings and DOL wage filings in Databricks (PySpark, Delta Lake) and dbt, with tests.
 - Score each posting's fit with a classifier trained on the owner's own decisions.
 - Answer questions with a read-only Claude agent that uses SQL and RAG over job descriptions,
-  measured by a 40-question eval suite.
+  measured by a 57-question eval suite.
 - Serve it through a FastAPI service on AWS Lambda, a React web app, an MCP server for Claude
   Desktop, a daily triage summary and a Tableau dashboard.
 
@@ -73,6 +76,52 @@ s3://<bucket>/<env>/
   ops/pipeline_runs/run_date=YYYY-MM-DD/run_id={run_id}.jsonl
 ```
 
+## Assistant and evals
+
+`jobradar ask "..."` sends a question to a Claude assistant with four **read-only** tools:
+
+| Tool | What it does |
+|---|---|
+| `run_sql` | One SELECT over the five gold tables, checked by a SQL guard (no writes, no other schemas, no file or network functions, capped at 100 rows) |
+| `search_job_text` | Meaning-based search over job descriptions (local `bge-small` embeddings + FAISS); quotes the passage and links the job |
+| `resume_fit` | Skill match %, gaps quoted from the posting, and years required vs. the owner's; the resume is read locally and only skill names reach the model |
+| `salary_check` | Posted salary vs. similar open postings and the company's H-1B filed wages for similar titles |
+
+Every tool result is marked as untrusted third-party text, and every step is traced.
+
+**Evals.** [`evals/questions.csv`](evals/questions.csv) holds 57 questions in 9 categories
+(52 drafted, 5 written by the owner). Each has an automatic check: for data questions the
+right answer is recomputed by SQL at run time, because the job data changes daily.
+
+```bash
+jobradar eval --truth-only    # check every right-answer query; no API cost
+jobradar eval --only Safety   # one category or a list of IDs
+jobradar eval                 # all 57 (about 15 minutes, about $3.50 in API usage)
+jobradar eval --regrade evals/results/<run>.jsonl   # re-grade saved answers, no API cost
+```
+
+Results, Nov 11 2026, `claude-sonnet-5-5` (full run, re-graded with the final checks):
+
+| Category | Passed |
+|---|---|
+| Counts | 8 of 8 |
+| Rankings | 7 of 7 |
+| Filters | 8 of 8 |
+| Salary | 7 of 7 |
+| Description search | 7 of 7 |
+| Resume fit | 5 of 5 |
+| Honesty (says when the data can't answer) | 5 of 5 |
+| Safety (refuses writes, secrets, other schemas, injected instructions) | 5 of 5 |
+| Owner's questions | 4 of 5 |
+| **Total** | **56 of 57 (98%)** |
+
+The one miss (U03: it used a keyword query instead of the description search) was fixed with
+one prompt instruction and passed on a targeted rerun with the other search questions (8 of 8). How the suite was tuned, honestly: four checks were wrong, not the assistant (they
+missed correct wording such as "I didn't run that query" or "three filings"), and two were
+too lenient (a right number buried in a table counted as a pass), so single-answer checks now
+read only the opening answer. Every change is in the git history and in
+[`evals/results/`](evals/results/).
+
 ## Quick start
 
 Requires Python 3.11 or newer.
@@ -93,10 +142,10 @@ To land data in S3, follow [docs/setup-aws.md](docs/setup-aws.md), copy `.env.ex
 
 | Milestone | Scope | Status |
 |---|---|---|
-| 1 | Accounts, repo, ingest to S3 with run log | In progress |
-| 2 | Delta tables with first and last seen; DOL filings; employer matching | Planned |
-| 3 | dbt models and tests; CI on pull requests; dev and prod | Planned |
-| 4 | Fit classifier; Claude agent with SQL and RAG; 40-question evals | Planned |
+| 1 | Accounts, repo, ingest to S3 with run log | Done |
+| 2 | Delta tables with first and last seen; DOL filings; employer matching | Done |
+| 3 | dbt models and tests; CI on pull requests; dev and prod | Done |
+| 4 | Fit classifier; Claude agent with SQL, RAG, resume-fit and salary tools; 57-question evals | Evals done; explain-back left |
 | 5 | FastAPI, Docker, Terraform, CD to AWS Lambda, alerts; Bedrock comparison | Planned |
 | 6 | MCP server, daily triage agent, React app, Tableau dashboard | Planned |
 

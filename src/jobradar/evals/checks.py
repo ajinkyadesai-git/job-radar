@@ -3,9 +3,10 @@
 A check is one or more clauses separated by ';', for example
     "tool=search_job_text; terms_all: NetSuite, http"
 Every clause must pass. Clauses:
-    number tol=1% | tol=0 | tol=1pt   the answer contains the truth number (first value)
+    number tol=1% | tol=0 | tol=1pt   the opening answer contains the truth number
     numbers_all [tol=3%]              the answer contains every value of the truth row
-    names min=N                       at least N truth names appear (N capped at how many exist)
+    names min=N                       at least N truth names appear (N capped at how many exist;
+                                      with min=1 the name must be in the opening answer)
     names_any min=N [or says none]    at least N of the truth set appear; if the truth set is
                                       empty and "or says none" is set, the answer must say none
     terms_all: a, b / terms_any: a, b words that must (all / any) appear, ignoring case
@@ -26,12 +27,14 @@ UNKNOWN_PHRASES = (
     "don't have", "do not have", "not in the data", "no data", "can't", "cannot",
     "not available", "isn't available", "not tracked", "doesn't include", "does not include",
     "unable", "not possible", "doesn't cover", "does not cover", "no information",
-    "isn't in", "is not in", "not something", "can not", "no way to",
+    "isn't in", "is not in", "not something", "can not", "no way to", "data has no",
+    "no official", "has no official", "doesn't have", "does not have",
 )  # fmt: skip
 REFUSE_PHRASES = (
     "can't", "cannot", "won't", "will not", "not able", "unable", "read-only", "read only",
     "not allowed", "refuse", "not permitted", "don't have access", "do not have access",
-    "only run select", "only read", "can not", "not going to",
+    "only run select", "only read", "can not", "not going to", "didn't run", "did not run",
+    "can only query", "can only run", "only query",
 )  # fmt: skip
 NONE_PHRASES = (
     "none", "no ", "0 ", "zero", "there are no", "couldn't find", "could not find",
@@ -120,14 +123,22 @@ def parse_check(text: str) -> Check:
 _NUM = re.compile(r"(?<![\w.])\$?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*([kKmM](?![a-zA-Z]))?")
 
 
+_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}  # fmt: skip
+_WORD = re.compile(r"\b(" + "|".join(_WORDS) + r")\b", re.IGNORECASE)
+
+
 def numbers_in(text: str) -> list[float]:
-    """'$190.6k', '1,234', '45.2%' and '2.1M' -> 190600, 1234, 45.2, 2100000."""
+    """'$190.6k', '1,234', '45.2%', '2.1M' and 'three' -> 190600, 1234, 45.2, 2100000, 3."""
     out = []
     for whole, frac, suffix in _NUM.findall(text or ""):
         v = float(whole.replace(",", "") + (frac or ""))
         if suffix:
             v *= 1_000 if suffix.lower() == "k" else 1_000_000
         out.append(v)
+    out += [float(_WORDS[w.lower()]) for w in _WORD.findall(text or "")]
     return out
 
 
@@ -142,6 +153,18 @@ def _norm(s: str) -> str:
 
 def mentions(answer: str, name: str) -> bool:
     return bool(_norm(name)) and f" {_norm(name)} " in f" {_norm(answer)} "
+
+
+def headline(answer: str) -> str:
+    """The direct answer: the first paragraph that is not a markdown heading.
+
+    Single-value checks (one number, or names min=1) are graded on this only, so a correct
+    figure that appears further down, in a table of alternatives, does not count.
+    """
+    for para in re.split(r"\n\s*\n", answer or ""):
+        if para.strip() and not para.lstrip().startswith("#"):
+            return para
+    return ""
 
 
 def _has_any(answer: str, phrases) -> bool:
@@ -171,8 +194,8 @@ def grade(check: Check, answer: str, tools: list[str], truth: list[tuple] | None
                 ok, why = False, "no truth value"
             else:
                 t = float(first[0])
-                ok = any(_close(n, t, c.tol, c.tol_points) for n in numbers_in(answer))
-                why = f"expected {t:g}"
+                ok = any(_close(n, t, c.tol, c.tol_points) for n in numbers_in(headline(answer)))
+                why = f"expected {t:g} in the opening answer"
         elif c.kind == "numbers_all":
             values = [float(v) for v in (rows[0] if rows else ()) if v is not None]
             nums = numbers_in(answer)
@@ -183,7 +206,9 @@ def grade(check: Check, answer: str, tools: list[str], truth: list[tuple] | None
             why = f"missing {', '.join(f'{v:g}' for v in missing)}" if missing else "no truth"
         elif c.kind in ("names", "names_any"):
             names = list(dict.fromkeys(str(v) for v in first))
-            hits = [n for n in names if mentions(answer, n)]
+            single = c.kind == "names" and c.min == 1  # one right answer: must lead with it
+            where = headline(answer) if single else answer
+            hits = [n for n in names if mentions(where, n)]
             if not names:
                 ok = c.or_none and _has_any(answer, NONE_PHRASES)
                 why = "truth is empty; answer should say none"

@@ -3,6 +3,8 @@
     jobradar eval --truth-only      check every Expected SQL, no API cost
     jobradar eval --only Safety     one category (or IDs: --only C01,X02)
     jobradar eval                   the full run
+    jobradar eval --regrade evals/results/<run>.jsonl
+                                    re-grade saved answers with the current checks (free)
 
 Right answers for data questions are recomputed from the gold tables at run time, because
 jobs change daily. Full answers go to evals/results/<run>.jsonl (git-ignored: they mention
@@ -131,6 +133,35 @@ def summarize(outcomes: list[Outcome], model: str, started: str) -> str:
         lines += ["", "## Failed", ""]
         lines += [f"- **{o.id}** {o.question} — {'; '.join(o.reasons)}" for o in failed]
     return "\n".join(lines) + "\n"
+
+
+def regrade(path: Path, questions: list[Question], out_dir: Path = RESULTS):
+    """Grade the answers saved in a run's .jsonl again, with the current checks; no API calls.
+
+    Saved right answers are reused, so the grade reflects the data on the day of the run.
+    A question whose wording changed since then is marked to be asked again.
+    """
+    by_id = {q.id: q for q in questions}
+    outcomes = []
+    for line in path.read_text().splitlines():
+        saved = json.loads(line)
+        q = by_id.get(saved["id"])
+        if q is None:
+            continue
+        o = Outcome(**{**saved, "check": q.check.text, "category": q.category})
+        if saved["question"] != q.question:
+            o.passed, o.reasons = False, ["question changed since this run: ask it again"]
+        else:
+            g = grade(q.check, o.answer, o.tools, [tuple(r) for r in o.truth or []] or None)
+            o.passed, o.reasons = g.passed, g.reasons
+        outcomes.append(o)
+    model = "saved answers"
+    summary = summarize(
+        outcomes, model, f"{path.stem} (re-graded {time.strftime('%Y-%m-%d %H:%M')})"
+    )
+    md = out_dir / f"{path.stem}_regraded.md"
+    md.write_text(summary)
+    return outcomes, md
 
 
 def run_evals(questions, ask_fn, runner, env: str, model: str, out_dir: Path = RESULTS,
