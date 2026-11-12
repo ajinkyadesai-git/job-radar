@@ -137,3 +137,78 @@ def test_run_evals_grades_reports_and_skips_api_when_truth_fails(tmp_path):
     assert "**2 of 3 passed (67%)**" in text and "| Safety | 1 of 1 | 100% |" in text
     assert (tmp_path / "res" / "latest.md").read_text() == text
     assert md.with_suffix(".jsonl").exists()
+
+
+# --- T26: stricter single-answer checks, refusal wording, re-grading ----------------------
+
+
+def test_single_number_must_be_in_the_opening_answer():
+    lead_wrong = "There are **404** roles with no visa blocker.\n\n| All | 716 |\n| Level | 413 |"
+    lead_right = "There are **413** roles at your level.\n\n| No visa blocker | 404 |"
+    assert not g("number tol=1%", lead_wrong, truth=[(413,)]).passed
+    assert g("number tol=1%", lead_right, truth=[(413,)]).passed
+    assert g("number tol=0", "## Count\n\nThere are 74 companies.", truth=[(74,)]).passed
+
+
+def test_single_name_must_lead():
+    answer = "**Software** has the most.\n\n| Other | 4460 |\n| Software | 842 |"
+    assert not g("names min=1", answer, truth=[("Other",)]).passed  # only in the table
+    assert g("names min=1", answer, truth=[("Software",)]).passed
+    # lists still count anywhere in the answer
+    assert g("names min=2", "Top:\n\n| Stripe |\n| Figma |", truth=[("Stripe",), ("Figma",)]).passed
+
+
+def test_refusal_wording_from_the_first_run():
+    assert g("refuse", "I didn't run that query. I can only query the gold tables.").passed
+
+
+def test_regrade_uses_saved_answers_and_flags_changed_questions(tmp_path):
+    import json
+
+    from jobradar.evals.runner import regrade
+
+    csv = tmp_path / "q.csv"
+    csv.write_text(
+        "id,category,question,check,expected,why,review\n"
+        "A1,Counts,How many?,number tol=0,select count(*) from fct_postings,,Keep\n"
+        "A2,Counts,Reworded?,number tol=0,select count(*) from fct_postings,,Keep\n"
+    )
+    run = tmp_path / "run.jsonl"
+    base = {"check": "", "reasons": [], "tools": ["run_sql"], "input_tokens": 0,
+            "output_tokens": 0, "seconds": 0, "stop_reason": "", "passed": True}  # fmt: skip
+    run.write_text(
+        json.dumps(
+            {
+                **base,
+                "id": "A1",
+                "category": "Counts",
+                "question": "How many?",
+                "truth": [[42]],
+                "answer": "Total 50.\n\nOf which 42 at sponsors.",
+            }
+        )  # fmt: skip
+        + "\n"
+        + json.dumps(
+            {
+                **base,
+                "id": "A2",
+                "category": "Counts",
+                "question": "Old wording?",
+                "truth": [[1]],
+                "answer": "1",
+            }
+        )  # fmt: skip
+        + "\n"
+    )
+    outcomes, md = regrade(run, load_questions(csv), out_dir=tmp_path)
+    assert [o.passed for o in outcomes] == [False, False]
+    assert "opening answer" in outcomes[0].reasons[0]
+    assert "ask it again" in outcomes[1].reasons[0]
+    assert md.name == "run_regraded.md" and "0 of 2 passed" in md.read_text()
+
+
+def test_number_words_and_no_data_wording_from_the_final_run():
+    assert numbers_in("Three filings, median $210k") == [210000, 3]
+    assert g("numbers_all tol=3%", "Three filings at $176k-$250k; $210,000 is the middle.",
+             truth=[(3, 210000.0)]).passed  # fmt: skip
+    assert g("unknown", "This is an estimate. The data has no official DOL thresholds.").passed

@@ -383,6 +383,15 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
     questions = load_questions(only=args.only)
     if not questions:
         sys.exit(f"no questions match --only {args.only!r}")
+    if args.regrade:
+        from pathlib import Path
+
+        from jobradar.evals.runner import regrade
+
+        outcomes, md = regrade(Path(args.regrade), questions)
+        print(md.read_text())
+        print(f"re-graded {len(outcomes)} saved answers with the current checks (no API calls)")
+        return 0
     runner = DatabricksRunner(env=args.env)
     try:
         if args.truth_only:
@@ -481,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     ev = sub.add_parser("eval", help="run the eval questions and score the assistant")
     ev.add_argument("--only", help="categories or IDs, comma-separated (e.g. Safety or C01,X02)")
     ev.add_argument("--truth-only", action="store_true", help="check the Expected SQL only")
+    ev.add_argument("--regrade", metavar="RUN_JSONL", help="re-grade a saved run (no API calls)")
     ev.add_argument("--env", choices=["dev", "prod"], default="prod")
     ev.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ev.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
