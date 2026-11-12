@@ -103,6 +103,17 @@ SKILLS: dict[str, str] = {
     "Solution design": r"\bsolution design\b|\bsolutions? architect",
     "UAT": r"\buat\b|\buser acceptance test",
     "Process mapping": r"\bprocess (?:mapping|improvement|design)\b",
+    "Fivetran": r"\bfivetran\b",
+    "Okta":r"\bokta\b",
+    "SOX controls":r"\bsox\b|\bsarbanes[- ]oxley\b",
+    "Retool":r"\bretool\b",
+    "Postman":r"\bpostman\b",
+     # AI governance and quality
+    "Data quality": r"\bdata[- ]quality\b|\bdata validation\b|\bvalidation checks?\b",
+    "AI governance": r"\b(?:ai|model) governance\b|\bresponsible ai\b|\bmodel risk\b",
+    "LLM evals": r"\b(?:llm|model|ai|agentic|agent) eval(?:uation)?s?\b|\bevals\b"
+    r"|\beval(?:uation)? (?:suite|framework|harness)(?:es|s)?\b",
+
 }
 
 _COMPILED = {name: re.compile(p, re.IGNORECASE) for name, p in SKILLS.items()}
