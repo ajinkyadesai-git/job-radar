@@ -1,0 +1,17 @@
+# Only pyproject.toml, README.md and src/ are copied into the image; this list keeps
+# secrets and large local folders out of the build context entirely.
+.env
+.env.*
+!.env.example
+.git
+.github
+.venv
+data
+evals/results
+dbt/target
+dbt/logs
+**/__pycache__
+.pytest_cache
+.ruff_cache
+*.egg-info
+_to_move
