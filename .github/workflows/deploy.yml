@@ -1,0 +1,92 @@
+name: deploy
+
+# Every merge to main that touches the API ships it to AWS Lambda:
+# build the image -> push to ECR (tag = commit) -> update Lambda -> check /health
+# -> if /health fails, roll back to the image that was running before.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # lets GitHub get a short-lived OIDC token; no AWS keys are stored
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false # never stop a deploy halfway
+
+env:
+  AWS_REGION: us-west-2
+  FUNCTION: job-radar-api
+  REPOSITORY: job-radar-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm # native ARM build, same as the Lambda (arm64)
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to AWS with OIDC (role allows only main of this repo)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sign in to ECR
+        run: |
+          REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          echo "IMAGE=${REGISTRY}/${REPOSITORY}:${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - name: Build and push the image (skipped if this commit is already pushed)
+        run: |
+          if aws ecr describe-images --repository-name "$REPOSITORY" \
+               --image-ids imageTag="${GITHUB_SHA::12}" >/dev/null 2>&1; then
+            echo "image for this commit already in ECR"
+          else
+            docker build --provenance=false -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+
+      - name: Remember the running image (for rollback)
+        run: |
+          PREVIOUS=$(aws lambda get-function --function-name "$FUNCTION" \
+                       --query Code.ImageUri --output text)
+          echo "PREVIOUS=$PREVIOUS" >> "$GITHUB_ENV"
+
+      - name: Update Lambda
+        run: |
+          aws lambda update-function-code --function-name "$FUNCTION" \
+            --image-uri "$IMAGE" --query LastUpdateStatus --output text
+          aws lambda wait function-updated-v2 --function-name "$FUNCTION"
+
+      - name: Check /health
+        id: health
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ vars.API_URL }}health" || true)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::/health did not return 200 after the deploy"
+          exit 1
+
+      - name: Roll back if /health failed
+        if: failure() && steps.health.outcome == 'failure'
+        run: |
+          echo "rolling back to the previous image"
+          aws lambda update-function-code --function-name "$FUNCTION" \
+            --image-uri "$PREVIOUS" --query LastUpdateStatus --output text
+          aws lambda wait function-updated-v2 --function-name "$FUNCTION"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ vars.API_URL }}health" || true)
+          echo "after rollback: HTTP $code"
+          exit 1
