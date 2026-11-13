@@ -15,3 +15,15 @@ variable "budget_alert_emails" {
   type        = list(string)
   sensitive   = true
 }
+
+variable "image_tag" {
+  description = "Image tag for the first Lambda deploy (later deploys come from GitHub)"
+  type        = string
+  default     = "bootstrap"
+}
+
+variable "github_repo" {
+  description = "owner/name of the GitHub repo allowed to deploy"
+  type        = string
+  default     = "ajinkyadesai-git/job-radar"
+}
