@@ -1,4 +1,4 @@
-.PHONY: install test lint fmt verify ingest ingest-local check-databricks
+.PHONY: install test lint fmt check serve verify ingest ingest-local check-databricks
 
 install:
 	pip install -e ".[dev]"
@@ -12,6 +12,14 @@ lint:
 fmt:
 	ruff check --fix .
 	ruff format .
+
+check:             ## the same checks CI runs: lint, format, tests
+	ruff check .
+	ruff format --check .
+	pytest
+
+serve:             ## run the API on http://127.0.0.1:8000 (docs at /docs)
+	jobradar serve --reload
 
 verify:            ## read-only: does every board token respond?
 	jobradar verify
