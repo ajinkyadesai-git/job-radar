@@ -22,8 +22,13 @@ variable "image_tag" {
   default     = "bootstrap"
 }
 
-variable "github_repo" {
-  description = "owner/name of the GitHub repo allowed to deploy"
+variable "github_sub_prefix" {
+  description = <<-EOT
+    Start of the OIDC subject GitHub sends for this repo. The repo uses GitHub's immutable
+    subject format (owner@owner_id/repo@repo_id), so a renamed or re-created repo with the
+    same name cannot deploy. Check with:
+    gh api repos/ajinkyadesai-git/job-radar/actions/oidc/customization/sub
+  EOT
   type        = string
-  default     = "ajinkyadesai-git/job-radar"
+  default     = "repo:ajinkyadesai-git@58768160/job-radar@1442637701"
 }
