@@ -7,6 +7,7 @@
 
 Everything except /health needs the header X-API-Key matching JOBRADAR_API_KEY. If that
 variable is not set, those endpoints answer 503 rather than run open to the internet.
+On Lambda the secrets come from SSM Parameter Store (see load_secrets_from_ssm).
 
 The server never sees the resume: resume_fit is a laptop-only tool, so /ask offers the
 assistant run_sql, salary_check and (when an index is present) search_job_text.
@@ -34,6 +35,34 @@ TODAY_COLUMNS = (
     "years_required, reach, salary_min_yearly_usd, salary_max_yearly_usd, first_seen, "
     "company_lca_filings, company_median_filed_wage, fit_score"
 )
+
+
+def load_secrets_from_ssm(prefix: str | None = None) -> list[str]:
+    """On Lambda, read secrets from SSM Parameter Store into the environment.
+
+    JOBRADAR_SSM_PREFIX (e.g. /job-radar/prod/) is set on the function; each parameter's last
+    path part becomes an environment variable (…/DATABRICKS_TOKEN -> DATABRICKS_TOKEN).
+    Values already in the environment win. Returns the names loaded, never the values.
+    """
+    prefix = prefix or os.environ.get("JOBRADAR_SSM_PREFIX")
+    if not prefix:
+        return []
+    import boto3
+
+    ssm = boto3.client("ssm")
+    loaded = []
+    for page in ssm.get_paginator("get_parameters_by_path").paginate(
+        Path=prefix, WithDecryption=True, Recursive=False
+    ):
+        for param in page["Parameters"]:
+            name = param["Name"].rsplit("/", 1)[-1]
+            if name not in os.environ:
+                os.environ[name] = param["Value"]
+                loaded.append(name)
+    return loaded
+
+
+load_secrets_from_ssm()
 
 
 def _version() -> str:

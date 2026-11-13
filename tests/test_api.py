@@ -133,3 +133,34 @@ def test_ask_validates_the_question(api):
     assert api.post("/ask", json={"question": "hi"}, headers=KEY).status_code == 422
     assert api.post("/ask", json={"question": "x" * 501}, headers=KEY).status_code == 422
     assert api.post("/ask", json={}, headers=KEY).status_code == 422
+
+
+def test_secrets_load_from_ssm_without_overriding_the_environment(monkeypatch):
+    import boto3
+    from moto import mock_aws
+
+    from jobradar.api.app import load_secrets_from_ssm
+
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+    monkeypatch.setenv("DATABRICKS_HTTP_PATH", "set-locally")
+    monkeypatch.delenv("JOBRADAR_TEST_TOKEN", raising=False)
+    with mock_aws():
+        ssm = boto3.client("ssm")
+        for name, value in [("JOBRADAR_TEST_TOKEN", "from-ssm"), ("DATABRICKS_HTTP_PATH", "x")]:
+            ssm.put_parameter(Name=f"/job-radar/prod/{name}", Value=value, Type="SecureString")
+        ssm.put_parameter(Name="/job-radar/dev/OTHER", Value="no", Type="SecureString")
+        loaded = load_secrets_from_ssm("/job-radar/prod/")
+    assert loaded == ["JOBRADAR_TEST_TOKEN"]
+    import os
+
+    assert os.environ["JOBRADAR_TEST_TOKEN"] == "from-ssm"
+    assert os.environ["DATABRICKS_HTTP_PATH"] == "set-locally"  # environment wins
+    assert "OTHER" not in os.environ
+    monkeypatch.delenv("JOBRADAR_TEST_TOKEN")
+
+
+def test_no_prefix_means_no_ssm_call(monkeypatch):
+    from jobradar.api.app import load_secrets_from_ssm
+
+    monkeypatch.delenv("JOBRADAR_SSM_PREFIX", raising=False)
+    assert load_secrets_from_ssm() == []
