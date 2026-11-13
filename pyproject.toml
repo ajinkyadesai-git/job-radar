@@ -28,6 +28,13 @@ dev = [
     "scikit-learn>=1.5,<2",
     "sqlglot>=25",
     "faiss-cpu>=1.8,<2",
+    "fastapi>=0.115,<1",
+    "httpx>=0.27,<1",
+]
+api = [
+    "job-radar[agent]",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
 ]
 dol = [
     "pandas>=2.2,<3",

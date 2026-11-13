@@ -433,6 +433,15 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
+    import uvicorn
+
+    if not os.environ.get("JOBRADAR_API_KEY"):
+        print("note: JOBRADAR_API_KEY is not set, so only /health will answer")
+    uvicorn.run("jobradar.api.app:app", host=args.host, port=args.port, reload=args.reload)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Export .env into the process so libraries such as boto3 see AWS_PROFILE too.
     load_dotenv()
@@ -494,6 +503,10 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--env", choices=["dev", "prod"], default="prod")
     ev.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ev.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
+    sv = sub.add_parser("serve", help="run the API locally (FastAPI on uvicorn)")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--reload", action="store_true", help="restart when code changes")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -518,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
         "eval": cmd_eval,
+        "serve": cmd_serve,
     }
     return commands[args.cmd](args, settings)
 
