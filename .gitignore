@@ -233,3 +233,11 @@ ingest-policy.json
 
 # Eval runs: full answers stay local; the summary is committed
 evals/results/*.jsonl
+
+# Terraform: providers, local state and variable values stay on the laptop
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfvars
+infra/terraform/crash.log
+infra/terraform/*.tfplan
