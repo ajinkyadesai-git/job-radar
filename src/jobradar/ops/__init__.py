@@ -1,1 +1,1 @@
-"""Operations: deploying and running the Databricks job."""
+"""Operations: the daily watchdog (M5)."""

@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-24.04-arm # native ARM build, same as the Lambda (arm64)
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Sign in to AWS with OIDC (role allows only main of this repo)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -79,6 +79,16 @@ jobs:
           done
           echo "::error::/health did not return 200 after the deploy"
           exit 1
+
+      - name: Update the watchdog to the same image
+        run: |
+          if aws lambda get-function --function-name job-radar-watchdog >/dev/null 2>&1; then
+            aws lambda update-function-code --function-name job-radar-watchdog \
+              --image-uri "$IMAGE" --query LastUpdateStatus --output text
+            aws lambda wait function-updated-v2 --function-name job-radar-watchdog
+          else
+            echo "no watchdog function yet; skipping"
+          fi
 
       - name: Roll back if /health failed
         if: failure() && steps.health.outcome == 'failure'

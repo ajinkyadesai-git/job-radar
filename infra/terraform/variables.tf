@@ -32,3 +32,9 @@ variable "github_sub_prefix" {
   type        = string
   default     = "repo:ajinkyadesai-git@58768160/job-radar@1442637701"
 }
+
+variable "alert_email" {
+  description = "Where alerts go. Set in terraform.tfvars (git-ignored), not here."
+  type        = string
+  sensitive   = true
+}

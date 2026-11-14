@@ -40,3 +40,17 @@ def test_health_check_then_rollback_on_failure():
     rollback = _step("Roll back")
     assert rollback["if"] == "failure() && steps.health.outcome == 'failure'"
     assert "$PREVIOUS" in rollback["run"] and "exit 1" in rollback["run"]
+
+
+def test_watchdog_follows_the_api_image_only_after_a_healthy_deploy():
+    names = [s.get("name", "") for s in STEPS]
+    assert names.index("Check /health") < names.index("Update the watchdog to the same image")
+    assert "job-radar-watchdog" in _step("Update the watchdog")["run"]
+
+
+def test_actions_run_on_node_24_versions():
+    workflows = WORKFLOW.parent.glob("*.yml")
+    for path in workflows:
+        text = path.read_text()
+        for old in ("actions/checkout@v4", "actions/setup-python@v5", "credentials@v4"):
+            assert old not in text, f"{path.name} still uses {old}"

@@ -12,3 +12,8 @@ output "github_deploy_role_arn" {
   description = "Role GitHub Actions assumes to deploy (T31)"
   value       = aws_iam_role.github_deploy.arn
 }
+
+output "alerts_topic_arn" {
+  description = "SNS topic that emails alerts"
+  value       = aws_sns_topic.alerts.arn
+}

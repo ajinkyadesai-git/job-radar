@@ -27,3 +27,11 @@ Secrets are SSM SecureString parameters under `/job-radar/prod/`, created once w
 `aws ssm put-parameter`; the app loads them at start-up. First deploy: create the image store
 (`terraform apply -target=aws_ecr_repository.api`), push an image tagged `bootstrap`, then
 `terraform apply`. Later images are shipped by GitHub (T31); Terraform ignores `image_uri`.
+
+## Alerts (T32)
+
+`alerts.tf`: an SNS topic `job-radar-alerts` that emails you (confirm the subscription email
+once); a `job-radar-watchdog` Lambda (same image, no public URL) run daily at 18:47 UTC by an
+EventBridge rule, which checks that today's ingest ran and that gold data is fresh, and emails
+if not; and alarms that email if the watchdog errors at all or the API errors 5+ times in an
+hour. `alert_email` lives in `terraform.tfvars` (git-ignored).

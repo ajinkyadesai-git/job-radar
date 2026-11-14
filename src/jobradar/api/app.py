@@ -198,6 +198,18 @@ def jobs_search(
     }
 
 
+if os.environ.get("JOBRADAR_WATCHDOG") == "1":
+    # Only on the watchdog function, which has no public URL: the Lambda Web Adapter passes
+    # the daily EventBridge event here as POST /events. The public API never has this route.
+    @app.post("/events", include_in_schema=False)
+    def watchdog_event() -> dict:
+        from dataclasses import asdict
+
+        from jobradar.ops.watchdog import run_from_environment
+
+        return asdict(run_from_environment())
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=3, max_length=500)
 
