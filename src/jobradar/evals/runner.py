@@ -26,9 +26,26 @@ from jobradar.evals.checks import Check, grade, parse_check
 
 QUESTIONS = Path("evals/questions.csv")
 RESULTS = Path("evals/results")
-# Estimate only; set JOBRADAR_PRICE_IN / JOBRADAR_PRICE_OUT (USD per million tokens).
-PRICE_IN = float(os.environ.get("JOBRADAR_PRICE_IN", "3"))
-PRICE_OUT = float(os.environ.get("JOBRADAR_PRICE_OUT", "15"))
+# USD per million tokens (input, output), from platform.claude.com pricing (Nov 2026).
+# Haiku 5.5 is the under-100K-token tier; our requests are about 10-20K tokens each.
+# Matched by name; JOBRADAR_PRICE_IN / JOBRADAR_PRICE_OUT override for anything else.
+PRICES = {
+    "sonnet-5-5": (2.0, 10.0),
+    "haiku-5-5": (0.10, 0.50),
+}
+DEFAULT_PRICE = (
+    float(os.environ.get("JOBRADAR_PRICE_IN", "2")),
+    float(os.environ.get("JOBRADAR_PRICE_OUT", "10")),
+)
+
+
+def price_for(model: str) -> tuple[float, float]:
+    return next((p for key, p in PRICES.items() if key in (model or "")), DEFAULT_PRICE)
+
+
+def cost_usd(model: str, tokens_in: int, tokens_out: int) -> float:
+    pin, pout = price_for(model)
+    return tokens_in / 1e6 * pin + tokens_out / 1e6 * pout
 
 
 @dataclass
@@ -90,6 +107,7 @@ class Outcome:
     output_tokens: int = 0
     seconds: float = 0.0
     stop_reason: str = ""
+    model: str = ""
 
 
 def run_one(q: Question, ask_fn, runner, env: str) -> Outcome:
@@ -114,13 +132,14 @@ def summarize(outcomes: list[Outcome], model: str, started: str) -> str:
     tin = sum(o.input_tokens for o in outcomes)
     tout = sum(o.output_tokens for o in outcomes)
     passed = sum(o.passed for o in outcomes)
-    cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
+    cost = cost_usd(model, tin, tout)
+    pin, pout = price_for(model)
     lines = [
         f"# Eval run {started}",
         "",
         f"**{passed} of {len(outcomes)} passed ({100 * passed / max(len(outcomes), 1):.0f}%)** "
         f"with `{model}`. Tokens: {tin:,} in, {tout:,} out (about ${cost:.2f} at "
-        f"${PRICE_IN:g}/${PRICE_OUT:g} per million).",
+        f"${pin:g}/${pout:g} per million).",
         "",
         "| Category | Passed | Score |",
         "|---|---|---|",
@@ -172,6 +191,7 @@ def run_evals(questions, ask_fn, runner, env: str, model: str, out_dir: Path = R
     with (out_dir / f"{started}.jsonl").open("w") as f:
         for i, q in enumerate(questions, 1):
             o = run_one(q, ask_fn, runner, env)
+            o.model = model
             outcomes.append(o)
             f.write(json.dumps(asdict(o), default=str) + "\n")
             mark = "PASS" if o.passed else "FAIL"

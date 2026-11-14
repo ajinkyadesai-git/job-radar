@@ -339,19 +339,18 @@ def _searcher():
 
 
 def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
-    import anthropic
-
-    from jobradar.agent.assistant import ask, save_trace
+    from jobradar.agent.assistant import DEFAULT_MODEL, ask, save_trace
+    from jobradar.agent.providers import default_model, make_client
     from jobradar.agent.tools import DatabricksRunner
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("Set ANTHROPIC_API_KEY in .env (never paste it in chat or commit it)")
+    client = make_client(args.provider)
+    model = args.model or default_model(args.provider, DEFAULT_MODEL)
     runner = DatabricksRunner(env=args.env)
     try:
-        kwargs = {"model": args.model} if args.model else {}
+        kwargs = {"model": model}
         result = ask(
             args.question,
-            anthropic.Anthropic(),
+            client,
             runner,
             env=args.env,
             searcher=_searcher(),
@@ -408,14 +407,12 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
             print(f"\n{len(questions)} questions, {bad} truth errors (no API calls made)")
             return 1 if bad else 0
 
-        import anthropic
-
         from jobradar.agent.assistant import DEFAULT_MODEL, ask
+        from jobradar.agent.providers import default_model, make_client
 
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            sys.exit("Set ANTHROPIC_API_KEY in .env (never paste it in chat or commit it)")
-        model = args.model or DEFAULT_MODEL
-        client, schema = anthropic.Anthropic(), runner.describe()
+        client = make_client(args.provider)
+        model = args.model or default_model(args.provider, DEFAULT_MODEL)
+        schema = runner.describe()
         searcher, resume = _searcher(), _read_resume(args.resume) or None
 
         def ask_fn(question: str):
@@ -424,8 +421,8 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
                 searcher=searcher, resume_text=resume,
             )  # fmt: skip
 
-        print(f"asking {len(questions)} questions with {model}…")
-        outcomes, md = run_evals(questions, ask_fn, runner, args.env, model)
+        print(f"asking {len(questions)} questions with {model} on {args.provider}…")
+        outcomes, md = run_evals(questions, ask_fn, runner, args.env, f"{args.provider}:{model}")
     finally:
         runner.close()
     print("\n" + md.read_text())
@@ -434,6 +431,18 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
     if args.strict and failed:
         print(f"--strict: {len(failed)} question(s) failed: {', '.join(failed)}")
         return 1
+    return 0
+
+
+def cmd_eval_compare(args: argparse.Namespace, settings: Settings) -> int:
+    from pathlib import Path
+
+    from jobradar.evals.compare import compare_runs
+
+    text = compare_runs(Path(args.runs[0]), Path(args.runs[1]))
+    Path(args.out).write_text(text)
+    print(text)
+    print(f"saved: {args.out}")
     return 0
 
 
@@ -495,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     ak.add_argument("--env", choices=["dev", "prod"], default="prod")
     ak.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ak.add_argument("--show-sql", action="store_true", help="print each query")
+    ak.add_argument("--provider", choices=["anthropic", "bedrock"], default="anthropic")
     ak.add_argument(
         "--resume",
         default="data/resume/resume.txt",
@@ -508,6 +518,10 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ev.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
     ev.add_argument("--strict", action="store_true", help="exit 1 if any question fails (CI)")
+    ev.add_argument("--provider", choices=["anthropic", "bedrock"], default="anthropic")
+    ec = sub.add_parser("eval-compare", help="compare two eval runs side by side (no API calls)")
+    ec.add_argument("runs", nargs=2, help="two evals/results/<run>.jsonl files")
+    ec.add_argument("--out", default="evals/results/model-comparison.md")
     sv = sub.add_parser("serve", help="run the API locally (FastAPI on uvicorn)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -536,6 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
         "eval": cmd_eval,
+        "eval-compare": cmd_eval_compare,
         "serve": cmd_serve,
     }
     return commands[args.cmd](args, settings)
