@@ -4,9 +4,13 @@ Runs on AWS Lambda once a day (EventBridge schedule), a few hours after the GitH
 is due. It catches the failures GitHub's own email does not: a scheduled run GitHub skipped,
 and gold data that stopped updating. Problems go to an SNS topic, which emails you.
 
-    1. Ingest ran today: a run log exists under <prefix>/ops/pipeline_runs/run_date=<today>/
+    1. Ingest ran: a run log exists under <prefix>/ops/pipeline_runs/run_date=<day>/
        and its summary row is not "failed_all".
-    2. Gold is fresh: max(last_seen) in fct_postings is today.
+    2. Gold is fresh: max(last_seen) in fct_postings is <day>.
+
+<day> is the most recent UTC day whose run should be finished: today after 16:00 UTC (the
+daily run starts 14:17 UTC), otherwise yesterday. So a check at any hour, including a manual
+one in the US evening (already tomorrow in UTC), looks at the right run.
 """
 
 from __future__ import annotations
@@ -14,9 +18,17 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from jobradar.agent.sql_guard import check
+
+RUN_DUE_HOUR_UTC = 16  # the daily run starts 14:17 UTC and takes under an hour
+
+
+def day_to_check(now: datetime) -> date:
+    """The most recent UTC day whose daily run should be finished by `now`."""
+    now = now.astimezone(UTC)
+    return now.date() if now.hour >= RUN_DUE_HOUR_UTC else now.date() - timedelta(days=1)
 
 
 @dataclass
@@ -73,7 +85,7 @@ def run_watchdog(
     env: str = "prod",
     today: date | None = None,
 ) -> Report:
-    day = today or datetime.now(UTC).date()
+    day = today or day_to_check(datetime.now(UTC))
     report = Report(day=day.isoformat())
     for name, fn in (
         ("ingest", lambda: check_ingest(s3, bucket, prefix, day, report)),
