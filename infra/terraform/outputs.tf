@@ -17,3 +17,8 @@ output "alerts_topic_arn" {
   description = "SNS topic that emails alerts"
   value       = aws_sns_topic.alerts.arn
 }
+
+output "github_daily_role_arn" {
+  description = "Role the GitHub daily workflow assumes (OIDC, no stored keys)"
+  value       = aws_iam_role.github_daily.arn
+}

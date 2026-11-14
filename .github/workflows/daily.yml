@@ -13,6 +13,7 @@ on:
         required: false
 
 permissions:
+  id-token: write # OIDC sign-in to AWS; no AWS keys are stored in GitHub
   contents: read
 
 concurrency:
@@ -29,14 +30,17 @@ jobs:
       JOBRADAR_S3_BUCKET: ${{ vars.JOBRADAR_S3_BUCKET }}
       JOBRADAR_S3_PREFIX: prod
       JOBRADAR_AWS_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
       DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_SERVER_HOSTNAME }}
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
     steps:
       - uses: actions/checkout@v5
+      - name: Sign in to AWS with OIDC (role allows only main of this repo)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DAILY_ROLE_ARN }}
+          aws-region: ${{ vars.JOBRADAR_AWS_REGION }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

@@ -69,3 +69,15 @@ def test_eval_smoke_runs_on_agent_changes_and_fails_the_check():
     assert env["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY_CI }}"
     run = next(s["run"] for s in smoke["jobs"]["safety"]["steps"] if "Ask" in s.get("name", ""))
     assert "--strict" in run and "X01" in run
+
+
+def test_no_workflow_uses_stored_aws_keys():
+    for path in WORKFLOW.parent.glob("*.yml"):
+        text = path.read_text()
+        assert "AWS_ACCESS_KEY_ID" not in text and "AWS_SECRET_ACCESS_KEY" not in text, path.name
+    daily = yaml.safe_load((WORKFLOW.parent / "daily.yml").read_text())
+    assert daily["permissions"]["id-token"] == "write"
+    steps = daily["jobs"]["daily"]["steps"]
+    sign_in = next(i for i, s in enumerate(steps) if "Sign in to AWS" in s.get("name", ""))
+    ingest = next(i for i, s in enumerate(steps) if "Ingest" in s.get("name", ""))
+    assert sign_in < ingest
