@@ -55,7 +55,7 @@ ml = [
     "databricks-sql-connector>=3.3,<5",
 ]
 agent = [
-    "anthropic>=0.70,<3",
+    "anthropic[bedrock]>=0.70,<3",
     "sqlglot>=25",
     "databricks-sql-connector>=3.3,<5",
     "fastembed>=0.5,<1",

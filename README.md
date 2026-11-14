@@ -122,6 +122,21 @@ too lenient (a right number buried in a table counted as a pass), so single-answ
 read only the opening answer. Every change is in the git history and in
 [`evals/results/`](evals/results/).
 
+**Choosing the model.** The same 15 count and ranking questions on two models
+([report](evals/results/model-comparison.md)):
+
+| | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|
+| Passed | 15 of 15 | 15 of 15 |
+| Median seconds per question | 4.9 | 2.9 |
+| Estimated cost | $0.34 | $0.02 |
+
+Haiku matched Sonnet on structured data questions at about 40% lower latency and 1/17th
+the cost, so simple SQL questions are candidates for routing to Haiku; Sonnet stays the
+default until Haiku is tested on the safety, honesty and search categories. The assistant
+can also run on Amazon Bedrock (`--provider bedrock`, unit-tested); a live Bedrock run is
+pending AWS account access.
+
 ## Quick start
 
 Requires Python 3.11 or newer.
