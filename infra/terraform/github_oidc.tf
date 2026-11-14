@@ -50,7 +50,7 @@ resource "aws_iam_role_policy" "github_deploy" {
           "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetFunctionUrlConfig",
           "lambda:UpdateFunctionCode",
         ]
-        Resource = aws_lambda_function.api.arn
+        Resource = [aws_lambda_function.api.arn, aws_lambda_function.watchdog.arn]
       },
     ]
   })
