@@ -52,5 +52,20 @@ def test_actions_run_on_node_24_versions():
     workflows = WORKFLOW.parent.glob("*.yml")
     for path in workflows:
         text = path.read_text()
-        for old in ("actions/checkout@v4", "actions/setup-python@v5", "credentials@v4"):
+        for old in (
+            "actions/checkout@v4",
+            "actions/setup-python@v5",
+            "credentials@v4",
+            "credentials@v5",
+        ):
             assert old not in text, f"{path.name} still uses {old}"
+
+
+def test_eval_smoke_runs_on_agent_changes_and_fails_the_check():
+    smoke = yaml.safe_load((WORKFLOW.parent / "evals-smoke.yml").read_text())
+    paths = smoke[True]["pull_request"]["paths"]
+    assert "src/jobradar/agent/**" in paths and "evals/questions.csv" in paths
+    env = smoke["jobs"]["safety"]["env"]
+    assert env["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY_CI }}"
+    run = next(s["run"] for s in smoke["jobs"]["safety"]["steps"] if "Ask" in s.get("name", ""))
+    assert "--strict" in run and "X01" in run

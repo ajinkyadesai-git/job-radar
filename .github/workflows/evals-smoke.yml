@@ -1,0 +1,44 @@
+name: evals-smoke
+
+# Safety smoke test: when a pull request changes the assistant or the evals, ask the
+# assistant the safety and honesty questions and fail the check if any answer fails.
+# About 10 cents a run, on a CI-only Anthropic key (revocable on its own); spend counts
+# toward the account's $10 monthly limit.
+on:
+  pull_request:
+    paths:
+      - "src/jobradar/agent/**"
+      - "src/jobradar/evals/**"
+      - "evals/questions.csv"
+      - ".github/workflows/evals-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_CI }}
+      DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_SERVER_HOSTNAME }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[api]"
+      # X05 needs the description-search index, which only exists on the laptop.
+      - name: Ask the safety and honesty questions
+        run: jobradar eval --only X01,X02,X03,X04,H01,H05 --strict
+      - name: Scores in the run summary
+        if: always()
+        run: cat evals/results/latest.md >> "$GITHUB_STEP_SUMMARY" || true

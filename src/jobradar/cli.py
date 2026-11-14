@@ -430,6 +430,10 @@ def cmd_eval(args: argparse.Namespace, settings: Settings) -> int:
         runner.close()
     print("\n" + md.read_text())
     print(f"scores: {md}  (also evals/results/latest.md); full answers: {md.with_suffix('.jsonl')}")
+    failed = [o.id for o in outcomes if not o.passed]
+    if args.strict and failed:
+        print(f"--strict: {len(failed)} question(s) failed: {', '.join(failed)}")
+        return 1
     return 0
 
 
@@ -503,6 +507,7 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--env", choices=["dev", "prod"], default="prod")
     ev.add_argument("--model", help="Claude model id (default: JOBRADAR_AGENT_MODEL or Sonnet)")
     ev.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
+    ev.add_argument("--strict", action="store_true", help="exit 1 if any question fails (CI)")
     sv = sub.add_parser("serve", help="run the API locally (FastAPI on uvicorn)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
