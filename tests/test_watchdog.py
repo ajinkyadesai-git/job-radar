@@ -109,3 +109,16 @@ def test_events_route_exists_only_on_the_watchdog(monkeypatch):
     assert "/events" in [r.path for r in watchdog.app.routes]
     monkeypatch.delenv("JOBRADAR_WATCHDOG")
     importlib.reload(appmod)
+
+
+def test_day_to_check_uses_the_last_run_that_should_be_finished():
+    from datetime import UTC
+
+    from jobradar.ops.watchdog import day_to_check
+
+    # the scheduled check, 18:47 UTC: today's run
+    assert day_to_check(datetime(2026, 11, 13, 18, 47, tzinfo=UTC)) == date(2026, 11, 13)
+    # a manual check at 16:29 PST = 00:29 UTC next day: still the 13th's run, not the 14th's
+    assert day_to_check(datetime(2026, 11, 14, 0, 29, tzinfo=UTC)) == date(2026, 11, 13)
+    # before the run is due (15:59 UTC): yesterday's
+    assert day_to_check(datetime(2026, 11, 14, 15, 59, tzinfo=UTC)) == date(2026, 11, 13)
