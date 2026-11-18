@@ -10,8 +10,8 @@ All commands run from `~/Projects/job-radar` in the `jobradar` conda environment
 
 | Piece | Where | Schedule |
 |---|---|---|
-| Daily data run: ingest → Databricks → dbt build → freshness | GitHub Actions `daily.yml` | 14:17 UTC (6:17 PST / 7:17 PDT) |
-| Watchdog: did the run happen, is the data fresh | Lambda `job-radar-watchdog` | 18:47 UTC (10:47 PST / 11:47 PDT) |
+| Daily data run: ingest → Databricks → dbt build → freshness | GitHub Actions `daily.yml` | due 14:17 UTC; GitHub often starts it 5–9 hours late |
+| Watchdog: did yesterday's (UTC) run happen, is the data fresh | Lambda `job-radar-watchdog` | 03:47 UTC (7:47 pm PST / 8:47 pm PDT) |
 | API | Lambda `job-radar-api`, function URL (`terraform -chdir=infra/terraform output api_url`) | on request |
 | Deploy: build image → Lambda → `/health` → roll back on failure | GitHub Actions `deploy.yml` | every merge to `main` that touches the API |
 | Alerts | SNS topic `job-radar-alerts` → email | when the watchdog finds a problem or a Lambda keeps erroring |
@@ -120,7 +120,30 @@ Check each key's expiry date in the console; renew before it lapses.
   Known open item: the card on file expired, and the account is billed by AWS India
   (Indian payment methods only).
 
-## 9. Changing infrastructure
+## 9. Databricks refuses every run (Free Edition lockout)
+
+Happened Nov 15–17. Daily run red at "Build the lakehouse in Databricks" with
+`FEATURE_DISABLED: Triggering new runs for organization … is currently disabled temporarily`;
+the SQL warehouse answers `Cannot create the resource, please try again later`. So the daily
+build, `/jobs/today` and the assistant are all down, but ingest to S3 keeps working.
+
+Cause: Databricks Free Edition shuts off all compute after the account passes its free usage
+quota, for the rest of the day and "in extreme cases, the rest of the month". Data is kept.
+There is no usage meter to check.
+
+```bash
+gh run view <run-id> --log-failed | grep -i DatabricksError   # confirm it is this error
+```
+
+- Verify identity with LinkedIn in the Databricks header (done Nov 17; raises the limits).
+- Wait for the reset, then `gh workflow run daily`. A green `dbt-ci` check on any PR is a
+  quick sign compute is back.
+- If it lasts into a new month: create a fresh Free Edition workspace and re-point
+  `DATABRICKS_*` (see 7); the tables rebuild from S3 with the daily run.
+- Before Nov 17 the watchdog crashed instead of emailing in this case; it now connects inside
+  its checks, so expect a "Could not check freshness" email.
+
+## 10. Changing infrastructure
 
 Never in the AWS Console. Edit `infra/terraform/*.tf` on a branch, then:
 
