@@ -137,6 +137,24 @@ default until Haiku is tested on the safety, honesty and search categories. The 
 can also run on Amazon Bedrock (`--provider bedrock`, unit-tested); a live Bedrock run is
 pending AWS account access.
 
+## Daily triage (picks by email)
+
+After each green daily run, a small workflow judges the newest jobs at my level (top 10 by
+fit) as **apply, maybe or skip**, with up to three reasons grounded in the tool results and
+one prep tip, and emails a digest. It reuses the assistant's read-only tools, but as a fixed
+workflow rather than a free agent loop, because the steps are always the same:
+
+- **Limits:** Haiku, at most 10 jobs and $0.05 a run, checked before every call; an off switch
+  and an end date (it stops itself after Dec 31 unless extended).
+- **Retries:** busy or failing API calls are retried with exponential backoff; a job that still
+  fails is listed as "not triaged" and the run continues.
+- **Guardrails:** the model must answer through one forced tool call with a fixed schema;
+  verdicts are checked against the facts (an out-of-reach job can't be "apply", a weak skill
+  match is downgraded); job text is treated as untrusted data.
+- **Traces:** one line per job (inputs, verdict, tokens, cost, retries, flags) in S3 and the
+  GitHub run summary.
+- **Privacy:** the cloud run gets a list of skill names, never the resume.
+
 ## Use it from Claude Desktop (MCP)
 
 The same six read-only tools the assistant uses are also offered as a local **MCP server**,
@@ -171,7 +189,7 @@ To land data in S3, follow [docs/setup-aws.md](docs/setup-aws.md), copy `.env.ex
 | 3 | dbt models and tests; CI on pull requests; dev and prod | Done |
 | 4 | Fit classifier; Claude agent with SQL, RAG, resume-fit and salary tools; 57-question evals | Done |
 | 5 | FastAPI, Docker, Terraform, CD to AWS Lambda, alerts; model comparison | Done |
-| 6 | MCP server, daily triage agent, React app, Tableau dashboard | In progress (MCP done) |
+| 6 | MCP server, daily triage agent, React app, Tableau dashboard | In progress (MCP, triage done) |
 
 ## Design decisions
 

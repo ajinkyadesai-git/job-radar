@@ -13,6 +13,8 @@ jobradar fit-queue                 # pick the next postings to label (likely yes
 jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 jobradar rag-index                 # (re)build the search index over open job descriptions
+jobradar triage                    # today's newest jobs at my level: apply / maybe / skip
+jobradar skills-profile            # print the skill names found in the resume (not the resume)
 """
 
 from __future__ import annotations
@@ -446,6 +448,56 @@ def cmd_eval_compare(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _skills_text(resume_path: str) -> str:
+    """Skill names only: from JOBRADAR_SKILLS (the cloud run) or found in the local resume."""
+    from jobradar.agent.skills import find_skills, profile_text
+
+    if os.environ.get("JOBRADAR_SKILLS", "").strip():
+        return os.environ["JOBRADAR_SKILLS"]
+    return profile_text(find_skills(_read_resume(resume_path) or "", implied=True))
+
+
+def cmd_skills_profile(args: argparse.Namespace, settings: Settings) -> int:
+    text = _skills_text(args.resume)
+    if not text:
+        sys.exit(f"no skills found (is there a resume at {args.resume}?)")
+    print(text)
+    return 0
+
+
+def cmd_triage(args: argparse.Namespace, settings: Settings) -> int:
+    from jobradar.agent.providers import make_client
+    from jobradar.agent.tools import DatabricksRunner
+    from jobradar.ops.triage import DEFAULT_MODEL, Limits, publish, run_triage
+
+    skills = _skills_text(args.resume)
+    if not skills:
+        sys.exit("no skills: set JOBRADAR_SKILLS or put a resume at data/resume/resume.txt")
+    limits = Limits(max_jobs=args.max_jobs, max_cost_usd=args.max_cost)
+    runner = DatabricksRunner(env=args.env)
+    try:
+        run = run_triage(
+            runner, make_client("anthropic"), skills, env=args.env,
+            model=args.model or DEFAULT_MODEL, limits=limits,
+        )  # fmt: skip
+    finally:
+        runner.close()
+    storage = sns = None
+    if args.dest == "s3":
+        import boto3
+
+        storage = _store(settings)
+        sns = boto3.client("sns", region_name=settings.aws_region)
+    folder = publish(
+        run, args.out, storage=storage, sns=sns,
+        topic_arn=os.environ.get("JOBRADAR_DIGEST_TOPIC_ARN") if args.email else None,
+    )  # fmt: skip
+    print((folder / "digest.md").read_text())
+    print(f"saved: {folder}")
+    failed = run.count("not triaged")
+    return 1 if run.jobs and failed == len(run.jobs) else 0
+
+
 def cmd_mcp(args: argparse.Namespace, settings: Settings) -> int:
     from jobradar.mcp_server import run_stdio
 
@@ -532,6 +584,17 @@ def main(argv: list[str] | None = None) -> int:
     mc = sub.add_parser("mcp", help="run the MCP server over stdio (for Claude Desktop)")
     mc.add_argument("--dir", default=".", help="the job-radar folder (for .env and data/)")
     mc.add_argument("--env", choices=["dev", "prod"], default="prod")
+    tr = sub.add_parser("triage", help="today's newest jobs at my level: apply / maybe / skip")
+    tr.add_argument("--env", choices=["dev", "prod"], default="prod")
+    tr.add_argument("--model", help="default JOBRADAR_TRIAGE_MODEL or Haiku")
+    tr.add_argument("--max-jobs", type=int, default=10)
+    tr.add_argument("--max-cost", type=float, default=0.05, help="dollar cap for the run")
+    tr.add_argument("--dest", choices=["s3", "local"], default="local")
+    tr.add_argument("--out", default="data/triage", help="local folder for digest and traces")
+    tr.add_argument("--email", action="store_true", help="email the digest (needs --dest s3)")
+    tr.add_argument("--resume", default="data/resume/resume.txt", help="used only for skill names")
+    sp = sub.add_parser("skills-profile", help="print the skill names found in the resume")
+    sp.add_argument("--resume", default="data/resume/resume.txt")
     sv = sub.add_parser("serve", help="run the API locally (FastAPI on uvicorn)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -563,6 +626,8 @@ def main(argv: list[str] | None = None) -> int:
         "eval-compare": cmd_eval_compare,
         "serve": cmd_serve,
         "mcp": cmd_mcp,
+        "triage": cmd_triage,
+        "skills-profile": cmd_skills_profile,
     }
     return commands[args.cmd](args, settings)
 

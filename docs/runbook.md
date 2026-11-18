@@ -15,6 +15,7 @@ All commands run from `~/Projects/job-radar` in the `jobradar` conda environment
 | API | Lambda `job-radar-api`, function URL (`terraform -chdir=infra/terraform output api_url`) | on request |
 | Deploy: build image → Lambda → `/health` → roll back on failure | GitHub Actions `deploy.yml` | every merge to `main` that touches the API |
 | Alerts | SNS topic `job-radar-alerts` → email | when the watchdog finds a problem or a Lambda keeps erroring |
+| Triage digest: today's picks, apply / maybe / skip | `triage` job in `daily.yml` → SNS topic `job-radar-digest` → email | right after a green daily run |
 
 ## 1. Email: "No ingest run today" (GitHub skipped the schedule)
 
@@ -143,7 +144,31 @@ gh run view <run-id> --log-failed | grep -i DatabricksError   # confirm it is th
 - Before Nov 17 the watchdog crashed instead of emailing in this case; it now connects inside
   its checks, so expect a "Could not check freshness" email.
 
-## 10. Changing infrastructure
+## 10. Triage digest: missing, wrong, or to pause
+
+The `triage` job runs only after the daily job succeeds, so no digest usually means the
+daily run failed (see 2 or 9). If the daily run is green but triage is red:
+
+```bash
+gh run view <run-id> --log-failed | tail -40
+```
+
+- `no skills`: the `JOBRADAR_SKILLS` secret is missing. Set it from the laptop (prints and
+  sends skill names only, never the resume):
+  `jobradar skills-profile | gh secret set JOBRADAR_SKILLS`
+- Every job "not triaged" with `API error`: the Anthropic key (`ANTHROPIC_API_KEY_CI`) expired
+  or the monthly limit was reached (see 7 and 8). Retries already covered short outages.
+- Pause it without a code change: `gh variable set JOBRADAR_TRIAGE --body off`
+  (`--body on` to resume).
+- It stops by itself after **Dec 31, 2026**. To keep it running longer:
+  `gh variable set JOBRADAR_TRIAGE_UNTIL --body 2027-01-31` (any date).
+- Each run's digest and one trace line per job (inputs, verdict, tokens, cost, retries,
+  guardrail flags) are in S3 under `prod/ops/triage/run_date=<day>/` and in the run summary.
+
+Cost: Haiku, at most 10 jobs and $0.05 a run (checked before every call); normal is about
+half a cent a day.
+
+## 11. Changing infrastructure
 
 Never in the AWS Console. Edit `infra/terraform/*.tf` on a branch, then:
 
