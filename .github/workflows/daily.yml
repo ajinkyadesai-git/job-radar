@@ -3,6 +3,7 @@ name: daily
 # The daily pipeline: land today's job boards in S3 (prod), run the Databricks job
 # (bronze -> silver postings, DOL filings, employer matches), then build and test the gold
 # layer with dbt and check the data is fresh. Any failure turns the run red and emails you.
+# Then the triage job (T35) judges the newest jobs at my level and emails a digest.
 on:
   schedule:
     - cron: "17 14 * * *" # 14:17 UTC = 6:17 PST / 7:17 PDT, off the top of the hour
@@ -61,3 +62,38 @@ jobs:
       - name: Check the data is fresh
         working-directory: dbt
         run: dbt source freshness --target prod --profiles-dir .
+
+  # Runs only after the data run succeeds. A triage failure does not touch the data.
+  triage:
+    needs: daily
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      JOBRADAR_ENV: prod
+      JOBRADAR_S3_BUCKET: ${{ vars.JOBRADAR_S3_BUCKET }}
+      JOBRADAR_S3_PREFIX: prod
+      JOBRADAR_AWS_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ vars.JOBRADAR_AWS_REGION }}
+      DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_SERVER_HOSTNAME }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_CI }}
+      JOBRADAR_SKILLS: ${{ secrets.JOBRADAR_SKILLS }} # skill names only, never the resume
+      JOBRADAR_DIGEST_TOPIC_ARN: ${{ vars.JOBRADAR_DIGEST_TOPIC_ARN }}
+      JOBRADAR_TRIAGE: ${{ vars.JOBRADAR_TRIAGE || 'on' }} # set the variable to off to pause
+      JOBRADAR_TRIAGE_UNTIL: ${{ vars.JOBRADAR_TRIAGE_UNTIL }} # empty = stop after 2026-12-31
+    steps:
+      - uses: actions/checkout@v5
+      - name: Sign in to AWS with OIDC (role allows only main of this repo)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DAILY_ROLE_ARN }}
+          aws-region: ${{ vars.JOBRADAR_AWS_REGION }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[api]"
+      - name: Triage today's newest jobs (Haiku, max 10 jobs, max $0.05)
+        run: jobradar triage --dest s3 --email --max-jobs 10 --max-cost 0.05
+

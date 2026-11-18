@@ -169,3 +169,15 @@ def context(text: str, skill: str, chars: int = 140) -> str:
     end = min(len(text), m.end() + chars // 2)
     snippet = " ".join(text[start:end].split())
     return ("…" if start else "") + snippet + ("…" if end < len(text) else "")
+
+
+# A skill whose name is not matched by its own pattern, written as a phrase that is.
+_PROFILE_PHRASES = {"Agents": "AI agents"}
+
+
+def profile_text(skills) -> str:
+    """Skill names as one line that find_skills reads back to the same skills.
+
+    This is what leaves the laptop for the cloud triage run: skill names, never the resume.
+    """
+    return ", ".join(_PROFILE_PHRASES.get(name, name) for name in sorted(skills))
