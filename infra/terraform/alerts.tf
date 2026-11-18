@@ -107,7 +107,7 @@ resource "aws_lambda_function" "watchdog" {
 # Every day at 18:47 UTC (10:47 PST / 11:47 PDT), about 4.5 hours after the daily run.
 resource "aws_cloudwatch_event_rule" "watchdog_daily" {
   name                = "job-radar-watchdog-daily"
-  schedule_expression = "cron(47 18 * * ? *)"
+  schedule_expression = "cron(47 3 * * ? *)" # 03:47 UTC: after GitHub's late-starting daily runs (seen up to 23:25 UTC); checks the previous UTC day
 }
 
 resource "aws_cloudwatch_event_target" "watchdog_daily" {
