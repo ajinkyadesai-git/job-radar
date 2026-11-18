@@ -25,16 +25,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from jobradar.agent.sql_guard import check
-
-ROLE_FAMILIES = (
-    "Data / BI / AI", "Software", "Integration / solutions", "Business systems / ERP",
-    "Technical program / product", "Other",
-)  # fmt: skip
-TODAY_COLUMNS = (
-    "posting_key, company_name, title, location, url, role_family, seniority, "
-    "years_required, reach, salary_min_yearly_usd, salary_max_yearly_usd, first_seen, "
-    "company_lca_filings, company_median_filed_wage, fit_score"
-)
+from jobradar.queries import ROLE_FAMILIES, today_sql
 
 
 def load_secrets_from_ssm(prefix: str | None = None) -> list[str]:
@@ -152,16 +143,7 @@ def jobs_today(
     role_family: Literal[ROLE_FAMILIES] | None = None,  # type: ignore[valid-type]
 ) -> dict:
     """The Today list: new roles at sponsors, at your level, best fit first."""
-    filters = []
-    if reach:
-        filters.append(f"reach = '{reach}'")  # value is one of two literals
-    if role_family:
-        filters.append(f"role_family = '{role_family}'")  # value is from ROLE_FAMILIES
-    where = f"where {' and '.join(filters)}" if filters else ""
-    sql = (
-        f"select {TODAY_COLUMNS} from mart_new_postings {where} "
-        f"order by fit_score desc nulls last, first_seen desc limit {limit}"
-    )
+    sql = today_sql(limit, reach, role_family)
     columns, rows = svc.runner().run(check(sql, env=svc.env).sql)
     jobs = [dict(zip(columns, r, strict=False)) for r in rows]
     return {"count": len(jobs), "jobs": jobs}

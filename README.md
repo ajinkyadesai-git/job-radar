@@ -4,12 +4,12 @@ Open-source pipeline and AI agent that finds new job postings every day, scores 
 one fits you, and shows how each employer hires and pays using public Department of Labor (DOL)
 filings.
 
-> **Status: Milestone 4 of 6 (fit model, AI assistant, evals).** Daily ingest, the Databricks
-> lakehouse, dbt gold models with CI, a personal fit model and a read-only Claude assistant
-> with SQL, description search, resume-fit and salary tools are built. The assistant passes
-> **56 of 57** eval questions, including all safety and honesty questions
-> ([results](#assistant-and-evals)). Serving (API, web app, MCP) is next; see the
-> [roadmap](#roadmap).
+> **Status: Milestone 6 of 6 (serving).** Daily ingest, the Databricks lakehouse, dbt gold
+> models with CI, a personal fit model and a read-only Claude assistant are built. The
+> assistant passes **56 of 57** eval questions, including all safety and honesty questions
+> ([results](#assistant-and-evals)). It is live as an API on AWS Lambda (Terraform, keyless
+> CD, daily watchdog) and as an [MCP server](#use-it-from-claude-desktop-mcp) for Claude
+> Desktop. The web app is next; see the [roadmap](#roadmap).
 
 ## What it will do
 
@@ -137,6 +137,15 @@ default until Haiku is tested on the safety, honesty and search categories. The 
 can also run on Amazon Bedrock (`--provider bedrock`, unit-tested); a live Bedrock run is
 pending AWS account access.
 
+## Use it from Claude Desktop (MCP)
+
+The same six read-only tools the assistant uses are also offered as a local **MCP server**,
+so any MCP client (Claude Desktop, Claude Code, Cursor) can call them with no new code.
+The client's model does the reasoning; every query still goes through the SQL guard and the
+resume never leaves the laptop. Setup: [`docs/mcp.md`](docs/mcp.md).
+
+![Claude Desktop answering "what are the top 5 jobs I should apply to today?" with Job Radar's tools](docs/images/mcp-claude-desktop.png)
+
 ## Quick start
 
 Requires Python 3.11 or newer.
@@ -160,9 +169,9 @@ To land data in S3, follow [docs/setup-aws.md](docs/setup-aws.md), copy `.env.ex
 | 1 | Accounts, repo, ingest to S3 with run log | Done |
 | 2 | Delta tables with first and last seen; DOL filings; employer matching | Done |
 | 3 | dbt models and tests; CI on pull requests; dev and prod | Done |
-| 4 | Fit classifier; Claude agent with SQL, RAG, resume-fit and salary tools; 57-question evals | Evals done; explain-back left |
-| 5 | FastAPI, Docker, Terraform, CD to AWS Lambda, alerts; Bedrock comparison | Planned |
-| 6 | MCP server, daily triage agent, React app, Tableau dashboard | Planned |
+| 4 | Fit classifier; Claude agent with SQL, RAG, resume-fit and salary tools; 57-question evals | Done |
+| 5 | FastAPI, Docker, Terraform, CD to AWS Lambda, alerts; model comparison | Done |
+| 6 | MCP server, daily triage agent, React app, Tableau dashboard | In progress (MCP done) |
 
 ## Design decisions
 

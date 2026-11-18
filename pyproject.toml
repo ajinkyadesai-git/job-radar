@@ -31,6 +31,7 @@ dev = [
     "fastapi>=0.115,<1",
     "httpx>=0.27,<1",
     "anthropic[bedrock]>=0.70,<3",
+    "mcp>=2.3,<3",
 ]
 # What the API server needs, and nothing more (the image stays small; the embedding model
 # and FAISS are only needed where a search index exists, which is the laptop).
@@ -62,6 +63,11 @@ agent = [
     "fastembed>=0.5,<1",
     "faiss-cpu>=1.8,<2",
     "pyarrow>=15",
+]
+# MCP server for Claude Desktop (jobradar mcp)
+mcp = [
+    "job-radar[agent]",
+    "mcp>=2.3,<3",
 ]
 dbt = [
     "dbt-databricks>=1.10,<2",
