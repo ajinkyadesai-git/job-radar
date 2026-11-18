@@ -8,7 +8,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from jobradar.ops.watchdog import run_watchdog
+from jobradar.ops.watchdog import LazyRunner, run_watchdog
 
 DAY = date(2026, 11, 13)
 BUCKET = "jr-test"
@@ -122,3 +122,20 @@ def test_day_to_check_uses_the_last_run_that_should_be_finished():
     assert day_to_check(datetime(2026, 11, 14, 0, 29, tzinfo=UTC)) == date(2026, 11, 13)
     # before the run is due (15:59 UTC): yesterday's
     assert day_to_check(datetime(2026, 11, 14, 15, 59, tzinfo=UTC)) == date(2026, 11, 13)
+
+
+def test_databricks_refusing_to_connect_still_sends_an_email(aws):
+    s3, sns, topic, sqs, queue = aws
+    _runlog(s3)
+
+    def connect():
+        raise RuntimeError("BAD_REQUEST: Cannot create the resource, please try again later.")
+
+    runner = LazyRunner(connect)
+    r = run_watchdog(s3, runner, sns, topic, bucket=BUCKET, today=DAY)
+    runner.close()
+    assert r.problems == [
+        "Could not check freshness: BAD_REQUEST: Cannot create the resource, please try again "
+        "later."
+    ]
+    assert len(_inbox(sqs, queue)) == 1

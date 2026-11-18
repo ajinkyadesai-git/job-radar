@@ -15,6 +15,7 @@ one in the US evening (already tomorrow in UTC), looks at the right run.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -105,6 +106,28 @@ def run_watchdog(
     return report
 
 
+class LazyRunner:
+    """Connects to Databricks on the first query, not before.
+
+    Opening the connection inside the freshness check means a Databricks outage becomes a
+    "Could not check freshness" email instead of crashing the watchdog before it can send
+    anything (Nov 15-17: Databricks refused connections and the watchdog stayed silent).
+    """
+
+    def __init__(self, connect):
+        self._connect, self._runner = connect, None
+
+    def run(self, sql: str):
+        if self._runner is None:
+            self._runner = self._connect()
+        return self._runner.run(sql)
+
+    def close(self) -> None:
+        if self._runner is not None:
+            with contextlib.suppress(Exception):
+                self._runner.close()
+
+
 def run_from_environment() -> Report:
     """Wiring for Lambda: AWS clients, the Databricks runner and settings from env vars."""
     import boto3
@@ -112,7 +135,7 @@ def run_from_environment() -> Report:
     from jobradar.agent.tools import DatabricksRunner
 
     env = os.environ.get("JOBRADAR_API_ENV", "prod")
-    runner = DatabricksRunner(env=env)
+    runner = LazyRunner(lambda: DatabricksRunner(env=env))
     try:
         return run_watchdog(
             s3=boto3.client("s3"),
