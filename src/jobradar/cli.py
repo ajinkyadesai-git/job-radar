@@ -446,6 +446,13 @@ def cmd_eval_compare(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace, settings: Settings) -> int:
+    from jobradar.mcp_server import run_stdio
+
+    run_stdio(args.dir, env=args.env)
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
     import uvicorn
 
@@ -522,6 +529,9 @@ def main(argv: list[str] | None = None) -> int:
     ec = sub.add_parser("eval-compare", help="compare two eval runs side by side (no API calls)")
     ec.add_argument("runs", nargs=2, help="two evals/results/<run>.jsonl files")
     ec.add_argument("--out", default="evals/results/model-comparison.md")
+    mc = sub.add_parser("mcp", help="run the MCP server over stdio (for Claude Desktop)")
+    mc.add_argument("--dir", default=".", help="the job-radar folder (for .env and data/)")
+    mc.add_argument("--env", choices=["dev", "prod"], default="prod")
     sv = sub.add_parser("serve", help="run the API locally (FastAPI on uvicorn)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -552,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
         "eval": cmd_eval,
         "eval-compare": cmd_eval_compare,
         "serve": cmd_serve,
+        "mcp": cmd_mcp,
     }
     return commands[args.cmd](args, settings)
 
