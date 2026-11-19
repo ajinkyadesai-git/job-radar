@@ -237,3 +237,29 @@ def test_the_model_sees_the_summary_first():
     content = client.calls[0]["messages"][0]["content"]
     assert content.index("SUMMARY") < content.index("FACTS FROM resume_fit")
     assert "Pay: posted $120k-$180k." in content
+
+
+def test_only_strong_jobs_in_target_roles_are_considered():
+    runner = Runner(n=1)
+    run_triage(runner, Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    sql = runner.ran[0]
+    assert "fit_score >= 0.5" in sql and "<> 'Other'" in sql
+    strict = Runner(n=1)
+    run_triage(strict, Client(reply()), SKILLS_TEXT, limits=Limits(backoff_s=0, min_fit=0.7),
+               today=DAY)  # fmt: skip
+    assert "fit_score >= 0.7" in strict.ran[0]
+
+
+def test_a_quiet_day_says_so_and_sends_no_email(tmp_path):
+    run = run_triage(Runner(n=0), Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    assert run.jobs == [] and "No strong new matches today" in digest(run)
+    sent = []
+    publish(run, tmp_path, sns=NS(publish=lambda **kw: sent.append(kw)), topic_arn="arn:t")
+    assert sent == []
+
+
+def test_pay_close_to_the_median_reads_in_line():
+    salary = {"posted_salary": {"min": 148000, "max": 237000},
+              "similar_open_postings": {"median_midpoint": 192000, "postings_with_salary": 9},
+              "posted_vs_similar_median_pct": 0}  # fmt: skip
+    assert "midpoint is in line with the median midpoint ($192k)" in triage.summary({}, salary)

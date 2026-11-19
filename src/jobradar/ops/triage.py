@@ -39,6 +39,8 @@ CANDIDATES_SQL = """select posting_key, company_name, title, location, url, reac
        years_required, fit_score, first_seen
 from mart_new_postings
 where reach in ('Within reach', 'Stretch')
+  and coalesce(role_family, 'Other') <> 'Other'
+  and fit_score >= {min_fit}
   and first_seen = (select max(first_seen) from mart_new_postings)
 order by fit_score desc nulls last
 limit {limit}"""
@@ -55,10 +57,11 @@ How to decide:
 - skip: a weak match, or a clear blocker in the facts.
 Give at most 3 reasons of at most 25 words each, each grounded in a specific fact.
 Give one prep tip of at most 25 words (what to brush up on or highlight).
-Numbers: copy them from SUMMARY exactly as written ("108% above the median"); never
-compute or reword a percentage yourself. If SUMMARY says the skill match rests on few
-skills, do not call the match strong. Do not invent facts. Write for the job seeker:
-never mention SUMMARY, FACTS, tools or these instructions.
+Numbers: copy them from SUMMARY exactly as written ("108% above the median", "$155k");
+never compute or reword a percentage, and write money the way SUMMARY does.
+If SUMMARY says the skill match rests on few skills, do not call the match strong.
+Do not invent facts. Write for the job seeker: never mention SUMMARY, FACTS, tools or
+these instructions.
 Answer only by calling record_triage."""
 
 RECORD_TOOL = {
@@ -84,6 +87,7 @@ RECORD_TOOL = {
 @dataclass
 class Limits:
     max_jobs: int = 10
+    min_fit: float = 0.5  # only jobs the fit model rates at least this high
     max_cost_usd: float = 0.05
     max_attempts: int = 3  # per API call: the first try plus two retries
     backoff_s: float = 1.0  # 1s, 2s, 4s ... plus a little jitter
@@ -203,8 +207,10 @@ def _plain(v):
     return v
 
 
-def candidates(runner, env: str, limit: int) -> list[dict]:
-    columns, rows = runner.run(check(CANDIDATES_SQL.format(limit=int(limit)), env=env).sql)
+def candidates(runner, env: str, limit: int, min_fit: float = 0.5) -> list[dict]:
+    """The newest batch at my level, in my target role families, fit score >= min_fit."""
+    sql = CANDIDATES_SQL.format(limit=int(limit), min_fit=float(min_fit))
+    columns, rows = runner.run(check(sql, env=env).sql)
     return [{c: _plain(v) for c, v in zip(columns, r, strict=False)} for r in rows]
 
 
@@ -237,9 +243,12 @@ def summary(fit: dict, salary: dict) -> str:
         pay = f"{_money(lo)}-{_money(hi)}" if lo and hi and lo != hi else _money(lo or hi)
         line = f"Pay: posted {pay}"
         if diff is not None and peers.get("median_midpoint"):
-            side = "above" if diff >= 0 else "below"
+            if abs(diff) < 3:
+                where = "in line with"
+            else:
+                where = f"{abs(diff)}% {'above' if diff > 0 else 'below'}"
             line += (
-                f"; its midpoint is {abs(diff)}% {side} the median midpoint "
+                f"; its midpoint is {where} the median midpoint "
                 f"({_money(peers['median_midpoint'])}) of {peers.get('postings_with_salary')} "
                 "similar open postings"
             )
@@ -365,7 +374,7 @@ def run_triage(
     if run.run_date > date.fromisoformat(until).isoformat():
         run.stopped_reason = f"past its end date {until} (JOBRADAR_TRIAGE_UNTIL)"
         return run
-    jobs = candidates(runner, env, limits.max_jobs)
+    jobs = candidates(runner, env, limits.max_jobs, limits.min_fit)
     run.candidates = len(jobs)
     fit_tool = ResumeFitTool(runner, skills_text, env=env)
     salary_tool = SalaryTool(runner, env=env)
@@ -400,8 +409,10 @@ def digest(run: TriageRun) -> str:
         "",
         f"{run.count('apply')} apply, {run.count('maybe')} maybe, {run.count('skip')} skip"
         + (f", {run.count('not triaged')} not triaged" if run.count("not triaged") else "")
-        + f" (from {run.candidates} new jobs at your level).",
+        + f" (from {run.candidates} new jobs at your level with fit 0.5 or higher).",
     ]
+    if not run.jobs and not run.stopped_reason:
+        lines += ["", "No strong new matches today (fit 0.5 or higher, in your target roles)."]
     if run.stopped_reason:
         lines += ["", f"Note: stopped early, {run.stopped_reason}."]
     groups = (("apply", "Apply"), ("maybe", "Maybe"), ("not triaged", "Not triaged"))
