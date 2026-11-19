@@ -451,7 +451,8 @@ def digest(run: TriageRun) -> str:
         lines += [
             "",
             f"Note: {run.unscored} of them have no fit score yet, so they were ranked by skill "
-            "match instead. Run `jobradar fit-score` on the laptop to score them.",
+            "match instead. Check the 'Score open jobs' step of today's daily run, and that a "
+            "model was published (jobradar fit-publish).",
         ]
     if not run.jobs and not run.stopped_reason:
         lines += [

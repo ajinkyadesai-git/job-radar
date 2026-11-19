@@ -3,7 +3,9 @@ name: daily
 # The daily pipeline: land today's job boards in S3 (prod), run the Databricks job
 # (bronze -> silver postings, DOL filings, employer matches), then build and test the gold
 # layer with dbt and check the data is fresh. Any failure turns the run red and emails you.
-# Then the triage job (T35) judges the newest jobs at my level and emails a digest.
+# After dbt, the fit model (skill names only, published from the laptop) scores open jobs
+# and the postings tables are rebuilt with today's scores. Then the triage job (T35) judges
+# the newest jobs at my level and emails a digest.
 on:
   schedule:
     - cron: "17 14 * * *" # 14:17 UTC = 6:17 PST / 7:17 PDT, off the top of the hour
@@ -46,7 +48,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e ".[dbt]"
+      - run: pip install -e ".[dbt,ml]"
       - name: Ingest job boards to S3
         run: |
           if [ -n "${{ inputs.only }}" ]; then
@@ -59,6 +61,13 @@ jobs:
       - name: Build and test the gold layer (dbt, prod)
         working-directory: dbt
         run: dbt build --target prod --profiles-dir .
+      # A missing or broken model must not block the data: the triage digest notes unscored jobs.
+      - name: Score open jobs with the fit model (skills-only model from S3)
+        continue-on-error: true
+        run: jobradar fit-score --model s3
+      - name: Rebuild postings with today's fit scores
+        working-directory: dbt
+        run: dbt build --target prod --profiles-dir . --select fct_postings+
       - name: Check the data is fresh
         working-directory: dbt
         run: dbt source freshness --target prod --profiles-dir .

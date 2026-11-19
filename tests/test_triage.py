@@ -280,7 +280,7 @@ def test_unscored_jobs_are_ranked_by_skill_match_and_weak_ones_dropped():
     assert [j.posting_key for j in run.jobs] == ["ashby:3", "ashby:2"]  # scored job first
     assert run.unscored == 3 and run.candidates == 4
     text = digest(run)
-    assert "3 of them have no fit score yet" in text and "jobradar fit-score" in text
+    assert "3 of them have no fit score yet" in text and "Score open jobs" in text
 
 
 def test_unscored_jobs_are_not_looked_up_when_scored_ones_fill_the_list():

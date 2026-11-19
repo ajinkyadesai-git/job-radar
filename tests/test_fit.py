@@ -175,3 +175,65 @@ def test_score_upload_sql_batches_and_rejects_odd_keys():
         values_sql(["ashby:x'); drop table t; --"], [0.1], "v")
     with pytest.raises(ValueError):
         values_sql(["ashby:1"], [0.1, 0.2], "v")
+
+
+def test_skill_match_uses_skill_names_only():
+    from jobradar.fit.model import SkillMatch
+
+    sm = SkillMatch("SQL, Python, dbt").fit(["x"])
+    out = sm.transform(["We use SQL, Python, Spark and dbt.", "Quota and pipeline", None])
+    assert out.tolist() == [[0.75, 3.0], [0.0, 0.0], [0.0, 0.0]]
+
+
+def test_skills_model_is_cloud_safe_and_resume_model_is_not(tmp_path):
+    import joblib
+
+    from jobradar.fit.model import holds_resume, resume_scores
+
+    data = synthetic()
+    train, test = time_split(data[["posting_key", "label_date", "y"]])
+    resume = "Jane Doe 555-0100 spark dbt sql pipelines"
+    cloud, report = train_and_evaluate(
+        data, train["posting_key"], test["posting_key"], skills_text="Spark, dbt, SQL"
+    )
+    laptop, _ = train_and_evaluate(
+        data, train["posting_key"], test["posting_key"], resume_text=resume
+    )
+    assert report.model.recall == 1.0
+    assert "skill_match_share" in " ".join(cloud.named_steps["features"].get_feature_names_out())
+    rm = resume_scores(cloud, data)
+    assert rm[data["y"] == 1].mean() > rm[data["y"] == 0].mean()
+    assert not holds_resume(cloud) and holds_resume(laptop)
+    joblib.dump(cloud, tmp_path / "m.joblib")
+    assert b"Jane Doe" not in (tmp_path / "m.joblib").read_bytes()
+
+
+def test_fit_publish_refuses_a_model_with_the_resume(tmp_path, monkeypatch):
+    import boto3
+    import joblib
+    from moto import mock_aws
+
+    from jobradar.cli import main
+
+    data = synthetic()
+    train, test = time_split(data[["posting_key", "label_date", "y"]])
+    labels = write(tmp_path, ["2026-11-06,ashby,a1,openai,T,SF,u,Other,Would apply,"])
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+    with mock_aws():
+        s3 = boto3.client("s3", region_name="us-west-2")
+        s3.create_bucket(
+            Bucket="jr-test", CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+        )
+        for name, kwargs in (
+            ("laptop", {"resume_text": "spark sql"}),
+            ("cloud", {"skills_text": "SQL"}),
+        ):
+            pipe, _ = train_and_evaluate(data, train["posting_key"], test["posting_key"], **kwargs)
+            (tmp_path / name).mkdir()
+            joblib.dump(pipe, tmp_path / name / "fit_model.joblib")
+        args = ["fit-publish", "--labels", str(labels), "--bucket", "jr-test", "--model"]
+        with pytest.raises(SystemExit, match="resume text"):
+            main([*args, str(tmp_path / "laptop")])
+        assert main([*args, str(tmp_path / "cloud")]) == 0
+        head = s3.head_object(Bucket="jr-test", Key="prod/ops/model/fit_model.joblib")
+        assert head["Metadata"] == {"n-labels": "1"}
