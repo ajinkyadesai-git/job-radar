@@ -11,6 +11,7 @@ jobradar databricks-run            # start the daily job and wait for it to fini
 jobradar fit-train                 # train the fit model on your labels and report precision/recall
 jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
 jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
+jobradar fit-publish               # upload a skills-only model for the daily cloud job
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 jobradar rag-index                 # (re)build the search index over open job descriptions
 jobradar triage                    # today's newest jobs at my level: apply / maybe / skip
@@ -215,9 +216,12 @@ def cmd_fit_train(args: argparse.Namespace, settings: Settings) -> int:
     postings = fetch_postings(labels["posting_key"], env=args.env)
     data = labels.drop(columns=["role_family"], errors="ignore").merge(postings, on="posting_key")
     missing = len(labels) - len(data)
-    resume = _read_resume(args.resume)
+    if args.features == "resume":
+        resume, skills = _read_resume(args.resume), ""
+    else:  # skill names only: the model can then run in the daily cloud job
+        resume, skills = "", _skills_text(args.resume)
     pipe, report = train_and_evaluate(
-        data, train["posting_key"], test["posting_key"], resume_text=resume
+        data, train["posting_key"], test["posting_key"], resume_text=resume, skills_text=skills
     )
     out = save(pipe, report, args.out)
     m, b = report.model, report.baseline
@@ -234,14 +238,15 @@ def cmd_fit_train(args: argparse.Namespace, settings: Settings) -> int:
         f"{'model':10}{m.precision:>10}{m.recall:>8}{str(m.pr_auc):>8}{str(m.precision_at_10):>7}"
     )
     print(f"{'baseline':10}{b.precision:>10}{b.recall:>8}{'-':>8}{'-':>7}")
-    if resume:
+    if resume or skills:
         rm = resume_scores(pipe, data)
         print(
-            f"resume match, average: would apply {rm[data['y'] == 1].mean():.3f}, "
+            f"{args.features} match, average: would apply {rm[data['y'] == 1].mean():.3f}, "
             f"would skip {rm[data['y'] == 0].mean():.3f}"
         )
     print("pushes toward apply:", ", ".join(report.top_apply_terms[:10]))
     print("pushes toward skip: ", ", ".join(report.top_skip_terms[:10]))
+    print(f"features: {args.features} ({'laptop only' if resume else 'safe for the cloud'})")
     print(f"saved {out}/fit_model.joblib and {out}/fit_report.json (git-ignored)")
     return 0
 
@@ -277,19 +282,69 @@ def cmd_fit_queue(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+MODEL_KEY = "ops/model/fit_model.joblib"  # under the prod prefix in the bucket
+
+
+def _bucket(args: argparse.Namespace, settings: Settings) -> str:
+    bucket = getattr(args, "bucket", None) or settings.s3_bucket
+    if not bucket:
+        sys.exit("set JOBRADAR_S3_BUCKET or pass --bucket")
+    return bucket
+
+
+def cmd_fit_publish(args: argparse.Namespace, settings: Settings) -> int:
+    """Upload the trained model for the daily cloud job, refusing any model holding the resume."""
+    from pathlib import Path
+
+    import boto3
+    import joblib
+
+    from jobradar.fit.labels import read_labels
+    from jobradar.fit.model import holds_resume
+
+    model_file = Path(args.model) / "fit_model.joblib"
+    if holds_resume(joblib.load(model_file)):
+        sys.exit("model contains resume text; retrain with --features skills, then publish")
+    n_labels = len(read_labels(args.labels))
+    key = f"prod/{MODEL_KEY}"
+    boto3.client("s3", region_name=settings.aws_region).put_object(
+        Bucket=_bucket(args, settings),
+        Key=key,
+        Body=model_file.read_bytes(),
+        Metadata={"n-labels": str(n_labels)},
+        ServerSideEncryption="AES256",
+    )
+    print(f"published {model_file} ({n_labels} labels) to s3://{_bucket(args, settings)}/{key}")
+    return 0
+
+
 def cmd_fit_score(args: argparse.Namespace, settings: Settings) -> int:
+    import tempfile
     from pathlib import Path
 
     import joblib
 
     from jobradar.fit.features import _connect, fetch_candidates
     from jobradar.fit.labels import read_labels
-    from jobradar.fit.model import predict_proba
+    from jobradar.fit.model import holds_resume, predict_proba
     from jobradar.fit.scores import SCORES_TABLE, model_version, upload_scores
 
-    model_file = Path(args.model) / "fit_model.joblib"
+    if args.model == "s3":  # the daily cloud job: the model published by fit-publish
+        import boto3
+
+        obj = boto3.client("s3", region_name=settings.aws_region).get_object(
+            Bucket=_bucket(args, settings), Key=f"prod/{MODEL_KEY}"
+        )
+        model_file = Path(tempfile.mkdtemp()) / "fit_model.joblib"
+        model_file.write_bytes(obj["Body"].read())
+        n_labels = int(obj.get("Metadata", {}).get("n-labels", "0"))
+    else:
+        model_file = Path(args.model) / "fit_model.joblib"
+        n_labels = len(read_labels(args.labels))
     pipe = joblib.load(model_file)
-    version = model_version(model_file, len(read_labels(args.labels)))
+    if args.model == "s3" and holds_resume(pipe):
+        sys.exit("refusing to score in the cloud with a model that contains resume text")
+    version = model_version(model_file, n_labels)
     conn = _connect()
     try:
         cands = fetch_candidates(env="prod", connection=conn)
@@ -547,6 +602,13 @@ def main(argv: list[str] | None = None) -> int:
     fit.add_argument("--env", choices=["dev", "prod"], default="prod", help="gold to read")
     fit.add_argument("--test-from", help="first labeling day to hold out (default: the last)")
     fit.add_argument("--resume", default="data/resume/resume.txt", help="plain-text resume")
+    fit.add_argument(
+        "--features",
+        choices=["skills", "resume"],
+        default="skills",
+        help="skills: skill names only, safe to publish to the cloud (default); "
+        "resume: resume similarity, laptop only",
+    )
     fq = sub.add_parser("fit-queue", help="pick the next postings to label")
     fq.add_argument("--labels", default="data/labels/daily_labels.csv")
     fq.add_argument("--model", default="data/model")
@@ -555,7 +617,12 @@ def main(argv: list[str] | None = None) -> int:
     fq.add_argument("--out", help="default data/labels/queue_<today>.csv")
     fs = sub.add_parser("fit-score", help="score open jobs and upload the scores")
     fs.add_argument("--labels", default="data/labels/daily_labels.csv")
-    fs.add_argument("--model", default="data/model")
+    fs.add_argument("--model", default="data/model", help="a folder, or 's3' (cloud job)")
+    fs.add_argument("--bucket", help="default JOBRADAR_S3_BUCKET")
+    fp = sub.add_parser("fit-publish", help="upload the trained model for the daily cloud job")
+    fp.add_argument("--model", default="data/model")
+    fp.add_argument("--labels", default="data/labels/daily_labels.csv")
+    fp.add_argument("--bucket", help="default JOBRADAR_S3_BUCKET")
     ri = sub.add_parser("rag-index", help="build the search index over job descriptions")
     ri.add_argument("--env", choices=["dev", "prod"], default="prod")
     ak = sub.add_parser("ask", help="ask the AI assistant a question")
@@ -620,6 +687,7 @@ def main(argv: list[str] | None = None) -> int:
         "fit-train": cmd_fit_train,
         "fit-queue": cmd_fit_queue,
         "fit-score": cmd_fit_score,
+        "fit-publish": cmd_fit_publish,
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
         "eval": cmd_eval,

@@ -10,7 +10,7 @@ All commands run from `~/Projects/job-radar` in the `jobradar` conda environment
 
 | Piece | Where | Schedule |
 |---|---|---|
-| Daily data run: ingest → Databricks → dbt build → freshness | GitHub Actions `daily.yml` | due 14:17 UTC; GitHub often starts it 5–9 hours late |
+| Daily data run: ingest → Databricks → dbt build → fit scores → rebuild postings → freshness | GitHub Actions `daily.yml` | due 14:17 UTC; GitHub often starts it 5–9 hours late |
 | Watchdog: did yesterday's (UTC) run happen, is the data fresh | Lambda `job-radar-watchdog` | 03:47 UTC (7:47 pm PST / 8:47 pm PDT) |
 | API | Lambda `job-radar-api`, function URL (`terraform -chdir=infra/terraform output api_url`) | on request |
 | Deploy: build image → Lambda → `/health` → roll back on failure | GitHub Actions `deploy.yml` | every merge to `main` that touches the API |
@@ -168,7 +168,26 @@ gh run view <run-id> --log-failed | tail -40
 Cost: Haiku, at most 10 jobs and $0.05 a run (checked before every call); normal is about
 half a cent a day.
 
-## 11. Changing infrastructure
+## 11. Fit scores: retrain and publish the model
+
+The daily run scores every open job with the model in
+`s3://<bucket>/prod/ops/model/fit_model.joblib`. That model uses **skill names only**, never
+the resume, which is why it may run in the cloud; `fit-publish` refuses any model that holds
+resume text, and so does the cloud scoring step. Labels stay on the laptop.
+
+After labeling more jobs (or changing the skill list):
+
+```bash
+jobradar fit-train                       # default --features skills; prints PR-AUC and P@10
+jobradar fit-publish --bucket <bucket>   # upload for tomorrow's run
+```
+
+Symptoms of trouble: the triage digest says "N of them have no fit score yet", or the daily
+run's "Score open jobs" step is orange (it is allowed to fail so the data still lands).
+`jobradar fit-score` on the laptop scores everything immediately; gold picks the scores up
+at the next dbt build.
+
+## 12. Changing infrastructure
 
 Never in the AWS Console. Edit `infra/terraform/*.tf` on a branch, then:
 

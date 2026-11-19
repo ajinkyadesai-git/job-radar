@@ -141,7 +141,9 @@ pending AWS account access.
 
 After each green daily run, a small workflow judges the newest jobs at my level (top 10 in
 my target role families with a fit score of 0.5 or more; jobs not yet scored are ranked by
-skill match instead, and the digest says how many) as **apply, maybe or skip**, with up to three reasons grounded in the tool results and
+skill match instead, and the digest says how many). Fit scores are computed in the daily
+run by a model trained on my labels that uses skill names only, so neither the resume nor the
+labels leave the laptop as **apply, maybe or skip**, with up to three reasons grounded in the tool results and
 one prep tip, and emails a digest. It reuses the assistant's read-only tools, but as a fixed
 workflow rather than a free agent loop, because the steps are always the same:
 
