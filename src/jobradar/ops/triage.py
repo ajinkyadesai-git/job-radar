@@ -40,7 +40,7 @@ CANDIDATES_SQL = """select posting_key, company_name, title, location, url, reac
 from mart_new_postings
 where reach in ('Within reach', 'Stretch')
   and coalesce(role_family, 'Other') <> 'Other'
-  and fit_score >= {min_fit}
+  and (fit_score >= {min_fit} or fit_score is null)
   and first_seen = (select max(first_seen) from mart_new_postings)
 order by fit_score desc nulls last
 limit {limit}"""
@@ -87,7 +87,9 @@ RECORD_TOOL = {
 @dataclass
 class Limits:
     max_jobs: int = 10
-    min_fit: float = 0.5  # only jobs the fit model rates at least this high
+    min_fit: float = 0.5  # scored jobs: only those the fit model rates at least this high
+    min_skill_match: int = 40  # unscored jobs: only those matching at least this % of skills
+    pool: int = 40  # how many of the newest jobs to look at before choosing max_jobs
     max_cost_usd: float = 0.05
     max_attempts: int = 3  # per API call: the first try plus two retries
     backoff_s: float = 1.0  # 1s, 2s, 4s ... plus a little jitter
@@ -121,6 +123,7 @@ class TriageRun:
     model: str
     jobs: list[JobTriage] = field(default_factory=list)
     candidates: int = 0
+    unscored: int = 0  # candidates with no fit score yet (ranked by skill match instead)
     stopped_reason: str = ""
     cost_usd: float = 0.0
     seconds: float = 0.0
@@ -208,7 +211,8 @@ def _plain(v):
 
 
 def candidates(runner, env: str, limit: int, min_fit: float = 0.5) -> list[dict]:
-    """The newest batch at my level, in my target role families, fit score >= min_fit."""
+    """The newest batch at my level in my target role families: fit score >= min_fit, or no
+    fit score yet (scores come from the laptop; see choose())."""
     sql = CANDIDATES_SQL.format(limit=int(limit), min_fit=float(min_fit))
     columns, rows = runner.run(check(sql, env=env).sql)
     return [{c: _plain(v) for c, v in zip(columns, r, strict=False)} for r in rows]
@@ -290,7 +294,38 @@ def _payload(text: str) -> dict:
         return {}
 
 
-def triage_job(job: dict, client, model: str, fit_tool, salary_tool, limits: Limits) -> JobTriage:
+def choose(jobs: list[dict], fit_tool, limits: Limits) -> list[tuple[dict, str | None]]:
+    """Scored jobs first, best fit first; then unscored jobs ranked by skill match, keeping
+    only those with at least min_skill_match % of at least 3 listed skills.
+
+    Returns (job, resume_fit text or None) pairs, so the fit lookup is not done twice.
+    The same title at the same company (one job posted for several locations) counts once.
+    """
+    seen: set[tuple] = set()
+    unique = []
+    for job in jobs:
+        key = ((job.get("company_name") or "").lower(), " ".join((job.get("title") or "").split()))
+        if key not in seen:
+            seen.add(key)
+            unique.append(job)
+    jobs = unique
+    scored = [(j, None) for j in jobs if j.get("fit_score") is not None]
+    ranked = []
+    for job in jobs:
+        if job.get("fit_score") is not None or len(scored) >= limits.max_jobs:
+            continue
+        text = fit_tool(job["posting_key"])
+        facts = _payload(text)
+        pct, asked = facts.get("skill_match_pct"), facts.get("skills_asked") or 0
+        if pct is not None and pct >= limits.min_skill_match and asked >= 3:
+            ranked.append((pct, job, text))
+    ranked.sort(key=lambda r: r[0], reverse=True)
+    return (scored + [(job, text) for _, job, text in ranked])[: limits.max_jobs]
+
+
+def triage_job(
+    job: dict, client, model: str, fit_tool, salary_tool, limits: Limits, fit_text=None
+) -> JobTriage:
     started = time.time()
     t = JobTriage(
         posting_key=job["posting_key"],
@@ -300,7 +335,7 @@ def triage_job(job: dict, client, model: str, fit_tool, salary_tool, limits: Lim
         reach=job.get("reach"),
         fit_score=job.get("fit_score"),
     )
-    fit_text = fit_tool(t.posting_key)
+    fit_text = fit_text or fit_tool(t.posting_key)
     salary_text = salary_tool(t.posting_key)
     t.skill_match_pct = _payload(fit_text).get("skill_match_pct")
     t.posted_salary = _payload(salary_text).get("posted_salary")
@@ -374,17 +409,18 @@ def run_triage(
     if run.run_date > date.fromisoformat(until).isoformat():
         run.stopped_reason = f"past its end date {until} (JOBRADAR_TRIAGE_UNTIL)"
         return run
-    jobs = candidates(runner, env, limits.max_jobs, limits.min_fit)
-    run.candidates = len(jobs)
+    pool = candidates(runner, env, limits.pool, limits.min_fit)
+    run.candidates = len(pool)
+    run.unscored = sum(1 for j in pool if j.get("fit_score") is None)
     fit_tool = ResumeFitTool(runner, skills_text, env=env)
     salary_tool = SalaryTool(runner, env=env)
     per_job = 0.0
-    for job in jobs:
+    for job, fit_text in choose(pool, fit_tool, limits):
         # Stop before a call that could cross the cap (estimate: the dearest job so far).
         if run.cost_usd + per_job > limits.max_cost_usd:
             run.stopped_reason = f"cost cap ${limits.max_cost_usd:.2f} reached"
             break
-        t = triage_job(job, client, model, fit_tool, salary_tool, limits)
+        t = triage_job(job, client, model, fit_tool, salary_tool, limits, fit_text)
         run.jobs.append(t)
         run.cost_usd = round(run.cost_usd + t.cost_usd, 6)
         per_job = max(per_job, t.cost_usd)
@@ -409,10 +445,20 @@ def digest(run: TriageRun) -> str:
         "",
         f"{run.count('apply')} apply, {run.count('maybe')} maybe, {run.count('skip')} skip"
         + (f", {run.count('not triaged')} not triaged" if run.count("not triaged") else "")
-        + f" (from {run.candidates} new jobs at your level with fit 0.5 or higher).",
+        + f" (from {run.candidates} new jobs at your level in your target roles).",
     ]
+    if run.unscored:
+        lines += [
+            "",
+            f"Note: {run.unscored} of them have no fit score yet, so they were ranked by skill "
+            "match instead. Run `jobradar fit-score` on the laptop to score them.",
+        ]
     if not run.jobs and not run.stopped_reason:
-        lines += ["", "No strong new matches today (fit 0.5 or higher, in your target roles)."]
+        lines += [
+            "",
+            "No strong new matches today (target roles; fit 0.5 or more, or a 40% skill "
+            "match when not yet scored).",
+        ]
     if run.stopped_reason:
         lines += ["", f"Note: stopped early, {run.stopped_reason}."]
     groups = (("apply", "Apply"), ("maybe", "Maybe"), ("not triaged", "Not triaged"))
