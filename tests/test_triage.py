@@ -17,8 +17,10 @@ DESCRIPTION = "We need SQL and Python. NetSuite a plus. Snowflake and Airflow da
 class Runner:
     """Answers the candidate query and the posting lookups; everything else is empty."""
 
-    def __init__(self, n=2):
+    def __init__(self, n=2, fits=None, descriptions=None):
         self.ran, self.n = [], n
+        self.fits = fits if fits is not None else [0.9 - i / 10 for i in range(n)]
+        self.descriptions = descriptions or {}
 
     def run(self, sql):
         self.ran.append(sql)
@@ -27,8 +29,8 @@ class Runner:
                     "years_required", "fit_score", "first_seen"]  # fmt: skip
             rows = [
                 (f"ashby:{i}", "Ramp", f"Solutions Consultant {i}", "Remote US",
-                 f"https://x/{i}", "Within reach", 3, 0.9 - i / 10, DAY)
-                for i in range(self.n)
+                 f"https://x/{i}", "Within reach", 3, self.fits[i], DAY)
+                for i in range(len(self.fits))
             ]  # fmt: skip
             return cols, rows
         if "fct_postings" in sql and "posting_key = " in sql:
@@ -39,7 +41,7 @@ class Runner:
                     "description_text"]  # fmt: skip
             return cols, [(key, "ramp", "Ramp", "Solutions Consultant", "https://x", "US",
                            "Integration / solutions", "Mid", True, 3, 0.9, 120000, 180000,
-                           DESCRIPTION)]  # fmt: skip
+                           self.descriptions.get(key, DESCRIPTION))]  # fmt: skip
         return ["x"], []
 
     def describe(self):
@@ -237,3 +239,67 @@ def test_the_model_sees_the_summary_first():
     content = client.calls[0]["messages"][0]["content"]
     assert content.index("SUMMARY") < content.index("FACTS FROM resume_fit")
     assert "Pay: posted $120k-$180k." in content
+
+
+def test_only_strong_jobs_in_target_roles_are_considered():
+    runner = Runner(n=1)
+    run_triage(runner, Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    sql = runner.ran[0]
+    assert "(fit_score >= 0.5 OR fit_score IS NULL)" in sql and "<> 'Other'" in sql
+    strict = Runner(n=1)
+    run_triage(strict, Client(reply()), SKILLS_TEXT, limits=Limits(backoff_s=0, min_fit=0.7),
+               today=DAY)  # fmt: skip
+    assert "fit_score >= 0.7 OR" in strict.ran[0]
+
+
+def test_a_quiet_day_says_so_and_sends_no_email(tmp_path):
+    run = run_triage(Runner(n=0), Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    assert run.jobs == [] and "No strong new matches today" in digest(run)
+    sent = []
+    publish(run, tmp_path, sns=NS(publish=lambda **kw: sent.append(kw)), topic_arn="arn:t")
+    assert sent == []
+
+
+def test_pay_close_to_the_median_reads_in_line():
+    salary = {"posted_salary": {"min": 148000, "max": 237000},
+              "similar_open_postings": {"median_midpoint": 192000, "postings_with_salary": 9},
+              "posted_vs_similar_median_pct": 0}  # fmt: skip
+    assert "midpoint is in line with the median midpoint ($192k)" in triage.summary({}, salary)
+
+
+def test_unscored_jobs_are_ranked_by_skill_match_and_weak_ones_dropped():
+    runner = Runner(
+        fits=[None, None, None, 0.8],
+        descriptions={
+            "ashby:0": "Python and Java.",  # 1 of 2 asked: too few skills listed
+            "ashby:1": "SQL, Python, Snowflake, Airflow, Kafka, Spark.",  # 2 of 6 = 33%: weak
+            "ashby:2": DESCRIPTION,  # 3 of 5 = 60%: kept
+        },
+    )
+    run = run_triage(runner, Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    assert [j.posting_key for j in run.jobs] == ["ashby:3", "ashby:2"]  # scored job first
+    assert run.unscored == 3 and run.candidates == 4
+    text = digest(run)
+    assert "3 of them have no fit score yet" in text and "jobradar fit-score" in text
+
+
+def test_unscored_jobs_are_not_looked_up_when_scored_ones_fill_the_list():
+    runner = Runner(fits=[0.9, 0.8, None])
+    run_triage(runner, Client(reply()), SKILLS_TEXT, limits=Limits(backoff_s=0, max_jobs=2),
+               today=DAY)  # fmt: skip
+    assert not any("ashby:2" in sql for sql in runner.ran)
+
+
+def test_the_same_job_posted_twice_is_triaged_once():
+    runner = Runner(fits=[0.9, 0.8])
+    original = runner.run
+
+    def same_title(sql):
+        cols, rows = original(sql)
+        if "mart_new_postings" in sql:
+            rows = [r[:2] + ("Analytics Lead ",) + r[3:] for r in rows]  # same title, two keys
+        return cols, rows
+
+    runner.run = same_title
+    run = run_triage(runner, Client(reply()), SKILLS_TEXT, limits=FAST, today=DAY)
+    assert [j.posting_key for j in run.jobs] == ["ashby:0"]
