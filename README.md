@@ -19,7 +19,7 @@ read in your browser and never uploaded.
 | DOL filings linked | 554,190 cases; 96% of open jobs matched to their employer's filings |
 | Data tests | 64 dbt models and tests on every build; a failing test blocks the merge |
 | AI evals | 56 of 57 on Sonnet; Haiku 40 of 40 on the categories the public site uses; 100% safety and honesty |
-| Code tests | about 250 Python tests and 8 web tests, run in CI on every PR |
+| Code tests | 235 Python tests and 8 web tests, run in CI on every PR |
 | Running cost | free tiers; AI spend capped (public Ask 30 questions a day, triage $0.05 a day) |
 
 ## What you can do on the site

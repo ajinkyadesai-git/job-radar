@@ -33,7 +33,7 @@ function Chart({ title, takeaway, children }: { title: string; takeaway: string;
   );
 }
 
-export default function Insights() {
+export default function Insights({ owner = false }: { owner?: boolean }) {
   const { data, error, loading } = useLoad(() => api.insights(), []);
   if (!data) return <Status loading={loading} error={error} what="insights" />;
 
@@ -43,21 +43,28 @@ export default function Insights() {
   )[0];
   const days = steadyDays(data.new_per_day); // without the first loads of newly added companies
   const typicalNew = median(days.map((d) => d.new_jobs));
+  const biggest = [...families].sort((a, b) => b.open_jobs - a.open_jobs)[0];
   const pay = data.pay_by_family.filter((p) => p.role_family !== "Other");
   const sponsors = data.top_sponsors.slice(0, 10);
 
   return (
     <section aria-labelledby="ins-title">
-      <h2 id="ins-title" className="lede">What the market looks like for my target roles.</h2>
+      <h2 id="ins-title" className="lede">
+        {owner
+          ? "What the market looks like for my target roles."
+          : "What the tech job market looks like at H-1B sponsors."}
+      </h2>
       <p className="sub">Open US jobs at the 74 tracked companies, updated every morning.</p>
 
       <div className="charts">
         <Chart
           title="Open jobs by role family"
           takeaway={
-            bestShare
+            owner && bestShare
               ? `${bestShare.role_family} has the highest share of good fits: ${bestShare.good_fit} of ${bestShare.open_jobs.toLocaleString("en-US")}.`
-              : ""
+              : biggest
+                ? `${biggest.role_family} has the most open jobs: ${biggest.open_jobs.toLocaleString("en-US")}.`
+                : ""
           }
         >
           <ResponsiveContainer width="100%" height={260}>
@@ -67,7 +74,7 @@ export default function Insights() {
               <YAxis type="category" dataKey="role_family" width={170} tick={axis} />
               <Tooltip />
               <Bar dataKey="open_jobs" name="Open jobs" fill={NAVY} />
-              <Bar dataKey="good_fit" name="Good fit (0.5+)" fill={FILED} />
+              {owner && <Bar dataKey="good_fit" name="Good fit for me (0.5+)" fill={FILED} />}
             </BarChart>
           </ResponsiveContainer>
         </Chart>
