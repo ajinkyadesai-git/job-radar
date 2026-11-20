@@ -50,6 +50,7 @@ resource "aws_iam_role_policy" "api_secrets" {
 }
 
 # /ask keeps a per-day question count in S3, so the public web app has a hard daily cap.
+# The same policy covers the usage counts and feedback messages (CR19).
 resource "aws_iam_role_policy" "api_ask_usage" {
   name = "ask-daily-counter"
   role = aws_iam_role.api.id
@@ -59,15 +60,21 @@ resource "aws_iam_role_policy" "api_ask_usage" {
       {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject"]
-        Resource = "${aws_s3_bucket.raw.arn}/prod/ops/ask_usage/*"
+        Resource = [
+          "${aws_s3_bucket.raw.arn}/prod/ops/ask_usage/*",
+          "${aws_s3_bucket.raw.arn}/prod/ops/usage/*",    # daily visitor counts (CR19)
+          "${aws_s3_bucket.raw.arn}/prod/ops/feedback/*", # feedback messages (CR19)
+        ]
       },
       {
         # Without ListBucket, S3 answers "access denied" (not "no such key") for a day with no
-        # counter yet, so the first question of each day failed. Limited to the counter folder.
+        # counter yet, so the first question of each day failed. Limited to these folders.
         Effect    = "Allow"
         Action    = ["s3:ListBucket"]
         Resource  = aws_s3_bucket.raw.arn
-        Condition = { StringLike = { "s3:prefix" = ["prod/ops/ask_usage/*"] } }
+        Condition = { StringLike = { "s3:prefix" = [
+          "prod/ops/ask_usage/*", "prod/ops/usage/*", "prod/ops/feedback/*",
+        ] } }
       },
     ]
   })

@@ -24,6 +24,7 @@ assistant run_sql, salary_check and (when an index is present) search_job_text.
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -93,6 +94,8 @@ class Services:
     searcher_checked: bool = False
     _quota: object | None = None
     quota_checked: bool = False
+    _usage: object | None = None
+    usage_checked: bool = False
     insights_cache: tuple[float, dict] | None = None
 
     def runner(self):
@@ -132,6 +135,23 @@ class Services:
 
             self._quota = quota_from_environment()
         return self._quota
+
+    def usage(self):
+        if self._usage is None and not self.usage_checked:
+            self.usage_checked = True
+            from jobradar.api.usage import usage_from_environment
+
+            self._usage = usage_from_environment()
+        return self._usage
+
+    def count(self, event: str, referrer: str | None = None) -> None:
+        """Count a visitor event. Never fails the request it belongs to."""
+        try:
+            usage = self.usage()
+            if usage is not None:
+                usage.add(event, referrer)
+        except Exception:  # counting is best effort
+            logging.getLogger(__name__).warning("usage count failed for %s", event)
 
     def rows(self, sql: str) -> list[dict]:
         columns, rows = self.runner().run(check(sql, env=self.env).sql)
@@ -279,7 +299,7 @@ def _reach(years_required, years: int) -> str:
 
 
 @app.post("/match", dependencies=[Key])
-def match(body: MatchIn, svc: Svc) -> dict:
+def match(body: MatchIn, svc: Svc, x_owner_key: Annotated[str | None, Header()] = None) -> dict:
     """Fresh tech jobs (last 14 days) at H-1B sponsors, ranked by how many of each job's
     skills the visitor has. Nothing about the visitor is stored or logged."""
     try:
@@ -301,6 +321,8 @@ def match(body: MatchIn, svc: Svc) -> dict:
             reach=_reach(row.get("years_required"), body.years),
         )
         jobs.append(row)
+    if not is_owner(x_owner_key):
+        svc.count("match")
     return {"count": len(jobs), "fresh_days": 14, "jobs": jobs}
 
 
@@ -336,6 +358,8 @@ def ask_endpoint(
         allowed, remaining = quota.take()
         if not allowed:
             raise HTTPException(429, "The daily question limit is reached; try again tomorrow.")
+    if not is_owner(x_owner_key):
+        svc.count("ask")
     model = os.environ.get("JOBRADAR_AGENT_MODEL") or DEFAULT_MODEL
     r = ask(
         body.question, svc.client(), svc.runner(), env=svc.env, model=model,
@@ -353,3 +377,45 @@ def ask_endpoint(
         "stopped_early": r.stopped_early,
         "questions_left_today": remaining,
     }
+
+
+# --- Usage counts and feedback (CR19): counts per day, no personal data ---------------------
+
+
+class TrackIn(BaseModel):
+    event: Literal["visit", "tab:today", "tab:employers", "tab:insights", "tab:ask"]
+    referrer: str | None = Field(default=None, max_length=300)
+
+
+@app.post("/track", dependencies=[Key])
+def track(body: TrackIn, svc: Svc, x_owner_key: Annotated[str | None, Header()] = None) -> dict:
+    """Count a visit or a tab opened. Only the event and, for a visit, the referring site's
+    host name are kept; the owner's own use is not counted."""
+    if not is_owner(x_owner_key):
+        svc.count(body.event, body.referrer if body.event == "visit" else None)
+    return {"ok": True}
+
+
+class FeedbackIn(BaseModel):
+    message: str = Field(min_length=3, max_length=1000)
+    page: Literal["today", "employers", "insights", "ask"] | None = None
+
+
+@app.post("/feedback", dependencies=[Key])
+def feedback(body: FeedbackIn, svc: Svc) -> dict:
+    """Save a feedback message for the owner. Nothing else about the sender is kept."""
+    usage = svc.usage()
+    if usage is None:
+        raise HTTPException(503, "Feedback is not set up on this server")
+    if not usage.add_feedback(body.message.strip(), body.page):
+        raise HTTPException(429, "Thanks! The feedback box is full for today; try tomorrow.")
+    return {"ok": True}
+
+
+@app.get("/usage", dependencies=[Key, Owner])
+def usage_report(svc: Svc, days: Annotated[int, Query(ge=1, le=60)] = 14) -> dict:
+    """The owner's view: daily counts, where visits came from, and recent feedback."""
+    usage = svc.usage()
+    if usage is None:
+        raise HTTPException(503, "Usage counts are not set up on this server")
+    return {"days": usage.recent_days(days), "feedback": usage.recent_feedback()}

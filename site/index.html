@@ -8,7 +8,10 @@
   <link rel="canonical" href="https://d4v84iia6l5wz.cloudfront.net/">
   <!-- Short, readable address for the app on CloudFront. Keeps any #part (e.g. #me, #ask). -->
   <script>
-    location.replace("https://d4v84iia6l5wz.cloudfront.net/" + location.hash);
+    // Pass on only the site you came from (host name), for the app's privacy-safe visit counts.
+    var ref = "";
+    try { ref = new URL(document.referrer).hostname; } catch (e) {}
+    location.replace("https://d4v84iia6l5wz.cloudfront.net/" + (ref ? "?ref=" + encodeURIComponent(ref) : "") + location.hash);
   </script>
   <noscript><meta http-equiv="refresh" content="0; url=https://d4v84iia6l5wz.cloudfront.net/"></noscript>
   <style>

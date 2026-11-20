@@ -1,6 +1,6 @@
 import { currentOwnerKey } from "./owner";
 import type { SkillVocab } from "./resume";
-import type { AskResult, Employer, Insights, Job, MatchJob } from "./types";
+import type { AskResult, Employer, FeedbackItem, Insights, Job, MatchJob, UsageDay } from "./types";
 
 // Same-origin /api: the dev server (vite.config.ts) or CloudFront adds the API key.
 // The owner's passphrase, when this browser has it, unlocks the owner's own list.
@@ -49,6 +49,21 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, limit: 30 }),
     }),
+  /** Counts a visit or a tab; never throws, never slows the page. */
+  track: (event: string, referrer?: string) =>
+    call<{ ok: boolean }>("/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, referrer }),
+      keepalive: true,
+    }).catch(() => undefined),
+  feedback: (message: string, page?: string) =>
+    call<{ ok: boolean }>("/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, page }),
+    }),
+  usage: () => call<{ days: UsageDay[]; feedback: FeedbackItem[] }>("/usage?days=14"),
   ask: (question: string) =>
     call<AskResult>("/ask", {
       method: "POST",
