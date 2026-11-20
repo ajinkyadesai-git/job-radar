@@ -1,0 +1,81 @@
+name: web
+
+# The React app: build and test on every PR that touches web/; on main, publish the build
+# to the S3 bucket behind CloudFront and clear CloudFront's cache for the page itself.
+on:
+  pull_request:
+    paths: ["web/**", ".github/workflows/web.yml"]
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/web.yml"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC sign-in to AWS on main; no AWS keys are stored
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build # also type-checks (tsc -b)
+      - uses: actions/upload-artifact@v5
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: web-dist
+          path: dist
+      - name: Sign in to AWS with OIDC (role allows only main of this repo)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Upload the build (hashed assets cached for a year, the page never)
+        env:
+          BUCKET: ${{ vars.WEB_BUCKET }}
+        run: |
+          aws s3 sync dist/assets "s3://${BUCKET}/assets" --delete \
+            --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp dist/index.html "s3://${BUCKET}/index.html" \
+            --cache-control "no-cache" --content-type "text/html; charset=utf-8"
+      - name: Clear CloudFront's copy of the page
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.WEB_DISTRIBUTION_ID }}" --paths "/index.html" "/"
+      - name: Check the live site answers
+        run: |
+          URL="${{ vars.WEB_URL }}"
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL/")
+            api=$(curl -s -o /dev/null -w "%{http_code}" "$URL/api/health")
+            echo "page $code, api $api"
+            [ "$code" = 200 ] && [ "$api" = 200 ] && exit 0
+            sleep 20
+          done
+          exit 1
