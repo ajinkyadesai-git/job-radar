@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from jobradar.api.app import Services, app, get_services
 
 KEY = {"X-API-Key": "test-key"}
+OWNER = {**KEY, "X-Owner-Key": "owner-pass"}
 
 
 class Runner:
@@ -54,6 +55,7 @@ def svc(monkeypatch):
     monkeypatch.setenv("JOBRADAR_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.delenv("JOBRADAR_S3_BUCKET", raising=False)  # no daily cap unless a test sets one
+    monkeypatch.setenv("JOBRADAR_OWNER_KEY", "owner-pass")
     s = Services(env="prod", _runner=Runner(), _searcher=Searcher(), _client=Client())
     app.dependency_overrides[get_services] = lambda: s
     yield s
@@ -74,17 +76,17 @@ def test_health_needs_no_key_and_touches_nothing(api, svc):
 def test_key_is_required_and_checked(api):
     assert api.get("/jobs/today").status_code == 401
     assert api.get("/jobs/today", headers={"X-API-Key": "wrong"}).status_code == 401
-    assert api.get("/jobs/today", headers=KEY).status_code == 200
+    assert api.get("/jobs/today", headers=OWNER).status_code == 200
 
 
 def test_endpoints_are_disabled_when_no_key_is_configured(api, monkeypatch):
     monkeypatch.delenv("JOBRADAR_API_KEY")
-    r = api.get("/jobs/today", headers=KEY)
+    r = api.get("/jobs/today", headers=OWNER)
     assert r.status_code == 503 and "JOBRADAR_API_KEY" in r.json()["detail"]
 
 
 def test_today_builds_a_guarded_query_from_allowed_values_only(api, svc):
-    r = api.get("/jobs/today?limit=5&reach=Stretch&role_family=Software", headers=KEY)
+    r = api.get("/jobs/today?limit=5&reach=Stretch&role_family=Software", headers=OWNER)
     assert r.status_code == 200
     assert r.json() == {"count": 1, "jobs": [
         {"company_name": "Ramp", "title": "Technical Consultant", "fit_score": 0.86}]}  # fmt: skip
@@ -102,22 +104,22 @@ def test_today_builds_a_guarded_query_from_allowed_values_only(api, svc):
     ],
 )  # fmt: skip
 def test_today_rejects_values_outside_the_allowed_lists(api, svc, query):
-    assert api.get(f"/jobs/today?{query}", headers=KEY).status_code == 422
+    assert api.get(f"/jobs/today?{query}", headers=OWNER).status_code == 422
     assert svc._runner.ran == []
 
 
 def test_search_returns_passages_and_validates_input(api, svc):
-    r = api.get("/jobs/search?q=NetSuite%20Python&k=3&my_level_only=false", headers=KEY)
+    r = api.get("/jobs/search?q=NetSuite%20Python&k=3&my_level_only=false", headers=OWNER)
     body = r.json()
     assert r.status_code == 200 and body["results"][0]["match"] == 0.7123
     assert svc._searcher.last == ("NetSuite Python", 3, False)
-    assert api.get("/jobs/search?q=x", headers=KEY).status_code == 422
-    assert api.get("/jobs/search?q=dbt&k=50", headers=KEY).status_code == 422
+    assert api.get("/jobs/search?q=x", headers=OWNER).status_code == 422
+    assert api.get("/jobs/search?q=dbt&k=50", headers=OWNER).status_code == 422
 
 
 def test_search_without_an_index_is_a_clear_503(api, svc):
     svc._searcher, svc.searcher_checked = None, True
-    r = api.get("/jobs/search?q=dbt", headers=KEY)
+    r = api.get("/jobs/search?q=dbt", headers=OWNER)
     assert r.status_code == 503 and "index" in r.json()["detail"]
 
 
@@ -198,3 +200,61 @@ def test_ask_stops_at_the_daily_cap(api, svc, monkeypatch):
         second = api.post("/ask", json={"question": "And now?"}, headers=KEY)
         assert second.status_code == 429 and "limit" in second.json()["detail"]
         assert len(svc._client.sent) == 2  # the refused question never reached Claude
+
+
+class MatchRunner(Runner):
+    def run(self, sql):
+        self.ran.append(sql)
+        cols = ["posting_key", "company_name", "title", "years_required", "skills", "n_skills",
+                "matched"]  # fmt: skip
+        return cols, [("ashby:1", "Ramp", "Data Engineer", 4.0, "|Kafka|Python|SQL|", 3, 2)]
+
+
+def test_skills_vocabulary_is_served_for_the_browser(api):
+    body = api.get("/skills", headers=KEY).json()
+    names = {s["name"] for s in body["skills"]}
+    assert "SQL" in names and "Data warehousing" in body["implies"]["Snowflake"]
+
+
+def test_match_ranks_fresh_jobs_for_a_visitors_skills(api, svc):
+    svc._runner = MatchRunner()
+    r = api.post("/match", json={"skills": ["SQL", "Python"], "years": 3}, headers=KEY)
+    assert r.status_code == 200
+    job = r.json()["jobs"][0]
+    assert job["match_pct"] == 67 and job["matched"] == ["Python", "SQL"]
+    assert job["missing"] == ["Kafka"] and job["reach"] == "Stretch"
+    assert "skills" not in job and "n_skills" not in job
+    assert "workspace.jobradar_gold.fct_postings" in svc._runner.ran[-1]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"skills": ["Not a skill"], "years": 3},
+        {"skills": [], "years": 3},
+        {"skills": ["SQL"], "years": 99},
+        {"skills": ["SQL"], "years": 3, "role_family": "Other"},
+        {"skills": ["SQL"] * 41, "years": 3},
+    ],
+)
+def test_match_rejects_anything_outside_the_allowed_values(api, svc, body):
+    assert api.post("/match", json=body, headers=KEY).status_code == 422
+    assert svc._runner.ran == []
+
+
+def test_the_owners_list_needs_the_passphrase(api, svc, monkeypatch):
+    assert api.get("/jobs/today", headers=KEY).status_code == 401
+    assert api.get("/jobs/today", headers={**KEY, "X-Owner-Key": "guess"}).status_code == 401
+    assert api.get("/me", headers=OWNER).json() == {"owner": True}
+    assert svc._runner.ran == []  # wrong or missing passphrase: no query ran
+    monkeypatch.delenv("JOBRADAR_OWNER_KEY")
+    assert api.get("/jobs/today", headers=OWNER).status_code == 503
+
+
+def test_visitors_ask_in_public_mode_and_the_owner_does_not(api, svc):
+    api.post("/ask", json={"question": "What's on the Today list?"}, headers=KEY)
+    system = svc._client.sent[0]["system"]
+    assert "PUBLIC MODE" in system and "private" in system
+    svc._client = Client()
+    api.post("/ask", json={"question": "What's on the Today list?"}, headers=OWNER)
+    assert "PUBLIC MODE" not in svc._client.sent[0]["system"]

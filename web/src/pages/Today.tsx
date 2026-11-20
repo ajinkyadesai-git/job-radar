@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
+import { clearOwnerKey } from "../owner";
 import { payRange, plural, shortDay } from "../format";
 import { Status } from "../Status";
 import { useLoad } from "../useLoad";
+import type { MatchJob } from "../types";
 import { FitMeter } from "./FitMeter";
+import { MatchList, ResumeMatch } from "./ResumeMatch";
 
 const FAMILIES = [
   "Data / BI / AI",
@@ -13,11 +16,63 @@ const FAMILIES = [
   "Technical program / product",
 ];
 
-export default function Today() {
+export default function Today({
+  owner,
+  onLocked = () => {},
+}: {
+  owner: boolean;
+  onLocked?: () => void;
+}) {
+  const [matches, setMatches] = useState<MatchJob[] | null>(null);
+  if (matches && matches.length) {
+    return (
+      <MatchList
+        jobs={matches}
+        onBack={() => setMatches(null)}
+        backLabel={owner ? "Back to my list" : "Start over"}
+      />
+    );
+  }
+  return owner ? <MyList onMatches={setMatches} onLocked={onLocked} /> : <Visitor onMatches={setMatches} />;
+}
+
+/** What visitors see: their own resume match, open from the start. */
+function Visitor({ onMatches }: { onMatches: (jobs: MatchJob[] | null) => void }) {
+  return (
+    <section aria-labelledby="visitor-title">
+      <h2 id="visitor-title" className="lede">
+        Find fresh tech jobs at H-1B sponsors that match your resume.
+      </h2>
+      <p className="sub">
+        Jobs from the last two weeks at companies with H-1B filings, open in the US, with no
+        "won't sponsor" wording. Ranked by the share of each job's skills you have.
+      </p>
+      <ResumeMatch onResults={onMatches} startOpen />
+    </section>
+  );
+}
+
+function MyList({
+  onMatches,
+  onLocked,
+}: {
+  onMatches: (jobs: MatchJob[] | null) => void;
+  onLocked: () => void;
+}) {
   const [reach, setReach] = useState("");
   const [family, setFamily] = useState("");
   const { data, error, loading } = useLoad(
-    () => api.today({ reach: reach || undefined, role_family: family || undefined, limit: 50 }),
+    () =>
+      api
+        .today({ reach: reach || undefined, role_family: family || undefined, limit: 50 })
+        .catch((e: unknown) => {
+          // A changed or wrong passphrase: forget it and show the visitor view.
+          if (e instanceof ApiError && e.status === 401) {
+            clearOwnerKey();
+            onLocked();
+          }
+          throw e;
+        }),
     [reach, family],
   );
   const jobs = data?.jobs ?? [];
@@ -34,6 +89,8 @@ export default function Today() {
         At my level: up to 5 years of experience asked. Fit comes from a model trained on 200 jobs
         I labeled; reach compares the years a posting asks for with my 3.
       </p>
+
+      <ResumeMatch onResults={onMatches} />
 
       <div className="filters" role="group" aria-label="Filter jobs">
         <label>

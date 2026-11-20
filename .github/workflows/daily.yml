@@ -65,7 +65,10 @@ jobs:
       - name: Score open jobs with the fit model (skills-only model from S3)
         continue-on-error: true
         run: jobradar fit-score --model s3
-      - name: Rebuild postings with today's fit scores
+      - name: Tag open jobs with the skills they ask for (resume match, CR09)
+        continue-on-error: true
+        run: jobradar skills-index
+      - name: Rebuild postings with today's fit scores and skills
         working-directory: dbt
         run: dbt build --target prod --profiles-dir . --select fct_postings+
       - name: Check the data is fresh

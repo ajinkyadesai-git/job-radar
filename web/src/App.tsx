@@ -1,32 +1,38 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { type ComponentType, lazy, Suspense, useEffect, useState } from "react";
+import { clearOwnerKey, currentOwnerKey } from "./owner";
 import Employers from "./pages/Employers";
 import Today from "./pages/Today";
+import Unlock from "./pages/Unlock";
 
 // Charts and markdown are the heavy parts: load them only when their tab opens.
 const Insights = lazy(() => import("./pages/Insights"));
 const Ask = lazy(() => import("./pages/Ask"));
 
-const TABS = [
+type Page = ComponentType<{ owner: boolean; onLocked?: () => void }>;
+
+const TABS: readonly { id: string; label: string; page: Page }[] = [
   { id: "today", label: "Today", page: Today },
   { id: "employers", label: "Employers", page: Employers },
   { id: "insights", label: "Insights", page: Insights },
   { id: "ask", label: "Ask", page: Ask },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
+];
 
-function fromHash(): TabId {
+/** "me" is the owner's unlock page: reachable by its address only, not in the tabs. */
+function fromHash(): string {
   const id = window.location.hash.replace("#", "");
-  return (TABS.find((t) => t.id === id)?.id ?? "today") as TabId;
+  if (id === "me") return "me";
+  return TABS.find((t) => t.id === id)?.id ?? "today";
 }
 
 export default function App() {
-  const [tab, setTab] = useState<TabId>(fromHash);
+  const [tab, setTab] = useState<string>(fromHash);
+  const [owner, setOwner] = useState<boolean>(() => currentOwnerKey() !== null);
   useEffect(() => {
     const onHash = () => setTab(fromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const Page = TABS.find((t) => t.id === tab)!.page;
+  const Page = TABS.find((t) => t.id === tab)?.page ?? Today;
 
   return (
     <div className="shell">
@@ -34,8 +40,9 @@ export default function App() {
         <div className="brand">
           <h1>Job Radar</h1>
           <p>
-            New US jobs at companies that file H-1B wages with the Department of Labor, ranked by
-            how well they fit my profile.
+            {owner
+              ? "New US jobs at companies that file H-1B wages with the Department of Labor, ranked by how well they fit my profile."
+              : "New US tech jobs at companies that file H-1B wages with the Department of Labor. Match your resume to fresh listings, see who sponsors and what they pay, and ask the data."}
           </p>
         </div>
         <nav aria-label="Sections">
@@ -48,7 +55,16 @@ export default function App() {
       </header>
       <main>
         <Suspense fallback={<p className="status">Loading…</p>}>
-          <Page />
+          {tab === "me" ? (
+            <Unlock
+              onUnlocked={() => {
+                setOwner(true);
+                window.location.hash = "#today";
+              }}
+            />
+          ) : (
+            <Page owner={owner} onLocked={() => setOwner(false)} />
+          )}
         </Suspense>
       </main>
       <footer className="footer">
@@ -56,6 +72,21 @@ export default function App() {
           Data: public Greenhouse and Ashby job boards, refreshed daily, and Department of Labor
           LCA disclosure files. Read-only. Built by Ajinkya Desai.{" "}
           <a href="https://github.com/ajinkyadesai-git/job-radar">Source on GitHub</a>
+          {owner && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  clearOwnerKey();
+                  setOwner(false);
+                }}
+              >
+                Lock
+              </button>
+            </>
+          )}
         </p>
       </footer>
     </div>

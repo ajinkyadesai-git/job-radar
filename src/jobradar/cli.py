@@ -12,6 +12,7 @@ jobradar fit-train                 # train the fit model on your labels and repo
 jobradar fit-queue                 # pick the next postings to label (likely yes, unsure, random)
 jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
 jobradar fit-publish               # upload a skills-only model for the daily cloud job
+jobradar skills-index              # tag each open job with the skills it asks for (resume match)
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 jobradar rag-index                 # (re)build the search index over open job descriptions
 jobradar triage                    # today's newest jobs at my level: apply / maybe / skip
@@ -359,6 +360,26 @@ def cmd_fit_score(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_skills_index(args: argparse.Namespace, settings: Settings) -> int:
+    from jobradar.fit.features import _connect
+    from jobradar.fit.skills_index import (
+        SKILLS_TABLE,
+        fetch_open_postings,
+        index_rows,
+        upload_skills,
+    )
+
+    conn = _connect()
+    try:
+        rows = index_rows(fetch_open_postings(conn, env=args.env))
+        n = upload_skills(conn, rows)
+    finally:
+        conn.close()
+    with_skills = sum(1 for _, _, k in rows if k)
+    print(f"indexed {n} open US jobs ({with_skills} name at least one skill) into {SKILLS_TABLE}")
+    return 0
+
+
 def cmd_rag_index(args: argparse.Namespace, settings: Settings) -> int:
     import time
 
@@ -619,6 +640,8 @@ def main(argv: list[str] | None = None) -> int:
     fs.add_argument("--labels", default="data/labels/daily_labels.csv")
     fs.add_argument("--model", default="data/model", help="a folder, or 's3' (cloud job)")
     fs.add_argument("--bucket", help="default JOBRADAR_S3_BUCKET")
+    si = sub.add_parser("skills-index", help="tag each open job with the skills it asks for")
+    si.add_argument("--env", choices=["dev", "prod"], default="prod")
     fp = sub.add_parser("fit-publish", help="upload the trained model for the daily cloud job")
     fp.add_argument("--model", default="data/model")
     fp.add_argument("--labels", default="data/labels/daily_labels.csv")
@@ -688,6 +711,7 @@ def main(argv: list[str] | None = None) -> int:
         "fit-queue": cmd_fit_queue,
         "fit-score": cmd_fit_score,
         "fit-publish": cmd_fit_publish,
+        "skills-index": cmd_skills_index,
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
         "eval": cmd_eval,

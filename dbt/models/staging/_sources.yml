@@ -27,3 +27,7 @@ sources:
     schema: jobradar_ml
     tables:
       - name: fit_scores
+      - name: posting_skills
+        description: >
+          Tracked skills each open US posting asks for, as "|SQL|Python|", written daily by
+          jobradar skills-index (CR09: resume match for visitors).

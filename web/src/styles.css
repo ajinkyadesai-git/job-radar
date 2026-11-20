@@ -490,3 +490,224 @@ button {
     animation: none !important;
   }
 }
+
+/* Resume match (CR09) */
+.match-invite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--navy);
+  max-width: 880px;
+}
+
+.match-invite p {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
+.match-invite button,
+.match-panel .primary,
+.match-panel details button {
+  font-weight: 600;
+  color: var(--white);
+  background: var(--navy);
+  border: 0;
+  border-radius: 2px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+
+.match-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.match-panel {
+  margin: 0 0 28px;
+  padding: 18px 20px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--navy);
+  max-width: 880px;
+}
+
+.match-panel h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  color: var(--navy);
+}
+
+.privacy {
+  margin: 4px 0 16px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  max-width: 64ch;
+}
+
+.match-inputs {
+  display: grid;
+  gap: 12px;
+}
+
+.match-inputs .file {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.match-inputs details textarea {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.match-inputs summary {
+  cursor: pointer;
+  color: var(--navy);
+  font-size: 0.9375rem;
+}
+
+.skills {
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.skills legend {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin-bottom: 8px;
+}
+
+.skills ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.chip {
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: #9b1c1c;
+}
+
+.skills label,
+.match-go label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.match-go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.match-go input {
+  font: inherit;
+  width: 7em;
+  padding: 8px 10px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+}
+
+.matches-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 24px;
+}
+
+button.link {
+  font: inherit;
+  color: var(--navy);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.job-missing {
+  font-size: 0.875rem;
+  color: var(--stretch);
+}
+
+.match-pct {
+  font-weight: 600;
+  color: var(--filed);
+}
+
+.match-pct span {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.skills select {
+  max-width: 320px;
+}
+
+.match-of {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.unlock form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.unlock label {
+  flex-basis: 100%;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.unlock input {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  min-width: 260px;
+}
+
+.unlock button {
+  font-weight: 600;
+  color: var(--white);
+  background: var(--navy);
+  border: 0;
+  border-radius: 2px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+
+.footer .link {
+  font-size: inherit;
+}

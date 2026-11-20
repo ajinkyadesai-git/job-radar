@@ -49,7 +49,22 @@ def gold_schema(env: str = "prod") -> str:
     return f"workspace.{'jobradar_dev' if env == 'dev' else 'jobradar'}_gold"
 
 
-def check(sql: str, env: str = "prod", max_rows: int = MAX_ROWS) -> SafeQuery:
+# The public web app (CR09 owner view): visitors may not read the owner's Today list or fit
+# scores, so their questions run with these limits.
+PUBLIC_TABLES = tuple(t for t in GOLD_TABLES if t != "mart_new_postings")
+PUBLIC_BLOCKED_COLUMNS = ("fit_score",)
+
+
+def check(
+    sql: str,
+    env: str = "prod",
+    max_rows: int = MAX_ROWS,
+    tables: tuple[str, ...] | None = None,
+    blocked_columns: tuple[str, ...] = (),
+) -> SafeQuery:
+    """tables: the allowed tables (default: all gold tables). blocked_columns: columns the
+    query may not read; SELECT * is then refused too, since it would read them."""
+    allowed = tables or GOLD_TABLES
     schema = gold_schema(env)
     catalog, db = schema.split(".")
     try:
@@ -77,10 +92,8 @@ def check(sql: str, env: str = "prod", max_rows: int = MAX_ROWS) -> SafeQuery:
         name = table.name.lower()
         if not table.db and name in cte_names:
             continue
-        if name not in GOLD_TABLES:
-            raise SqlRejected(
-                f"table {table.sql()} is not allowed; use only: {', '.join(GOLD_TABLES)}"
-            )
+        if name not in allowed:
+            raise SqlRejected(f"table {table.sql()} is not allowed; use only: {', '.join(allowed)}")
         if (table.catalog and table.catalog.lower() != catalog) or (
             table.db and table.db.lower() != db
         ):
@@ -89,6 +102,14 @@ def check(sql: str, env: str = "prod", max_rows: int = MAX_ROWS) -> SafeQuery:
         table.set("catalog", exp.to_identifier(catalog))
         table.set("db", exp.to_identifier(db))
         used.add(name)
+
+    if blocked_columns:
+        blocked = {c.lower() for c in blocked_columns}
+        for col in tree.find_all(exp.Column):
+            if col.name.lower() in blocked:
+                raise SqlRejected(f"column {col.name} is private and can't be read here")
+        if any(not isinstance(star.parent, exp.Count) for star in tree.find_all(exp.Star)):
+            raise SqlRejected("list the columns you need instead of SELECT *")
 
     for func in tree.find_all(exp.Func):
         fname = (func.sql_name() if not isinstance(func, exp.Anonymous) else func.name).lower()

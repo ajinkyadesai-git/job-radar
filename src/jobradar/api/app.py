@@ -5,10 +5,16 @@
     GET  /jobs/search     search job descriptions by meaning
     GET  /employers       the tracked companies: open jobs and H-1B record
     GET  /insights        numbers for the web app's charts (cached for an hour)
+    GET  /skills          the tracked skill list and patterns (the browser reads resumes with it)
+    POST /match           fresh jobs ranked for a visitor's skill names and years (CR09)
     POST /ask             ask the assistant a question (costs API money; capped per day)
 
 Everything except /health needs the header X-API-Key matching JOBRADAR_API_KEY. If that
 variable is not set, those endpoints answer 503 rather than run open to the internet.
+
+The owner's own view (the Today list ranked by their fit model) also needs X-Owner-Key
+matching JOBRADAR_OWNER_KEY: the web app is public, the owner's job search is not. Without
+it, /ask runs in public mode and cannot read the Today list or fit scores.
 On Lambda the secrets come from SSM Parameter Store (see load_secrets_from_ssm).
 
 The server never sees the resume: resume_fit is a laptop-only tool, so /ask offers the
@@ -28,7 +34,14 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from jobradar.agent.sql_guard import check
-from jobradar.queries import EMPLOYERS_SQL, INSIGHTS, ROLE_FAMILIES, today_sql
+from jobradar.queries import (
+    EMPLOYERS_SQL,
+    INSIGHTS,
+    MAX_MATCH_SKILLS,
+    ROLE_FAMILIES,
+    match_sql,
+    today_sql,
+)
 
 
 def load_secrets_from_ssm(prefix: str | None = None) -> list[str]:
@@ -138,8 +151,22 @@ def require_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
         raise HTTPException(401, "missing or wrong X-API-Key")
 
 
+def is_owner(x_owner_key: str | None) -> bool:
+    expected = os.environ.get("JOBRADAR_OWNER_KEY", "")
+    return bool(expected and x_owner_key and hmac.compare_digest(x_owner_key, expected))
+
+
+def require_owner(x_owner_key: Annotated[str | None, Header()] = None) -> None:
+    if not os.environ.get("JOBRADAR_OWNER_KEY"):
+        raise HTTPException(503, "the owner view is not set up (JOBRADAR_OWNER_KEY)")
+    if not is_owner(x_owner_key):
+        time.sleep(1)  # slows down guessing
+        raise HTTPException(401, "owner passphrase missing or wrong")
+
+
 Svc = Annotated[Services, Depends(get_services)]
 Key = Depends(require_key)
+Owner = Depends(require_owner)
 
 app = FastAPI(
     title="Job Radar API",
@@ -153,7 +180,13 @@ def health() -> dict:
     return {"status": "ok", "version": _version()}
 
 
-@app.get("/jobs/today", dependencies=[Key])
+@app.get("/me", dependencies=[Key, Owner])
+def me() -> dict:
+    """Checks the owner passphrase (the web app's unlock box)."""
+    return {"owner": True}
+
+
+@app.get("/jobs/today", dependencies=[Key, Owner])
 def jobs_today(
     svc: Svc,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -167,7 +200,7 @@ def jobs_today(
     return {"count": len(jobs), "jobs": jobs}
 
 
-@app.get("/jobs/search", dependencies=[Key])
+@app.get("/jobs/search", dependencies=[Key, Owner])
 def jobs_search(
     svc: Svc,
     q: Annotated[str, Query(min_length=2, max_length=200)],
@@ -218,6 +251,58 @@ def insights(svc: Svc) -> dict:
     return data
 
 
+@app.get("/skills", dependencies=[Key])
+def skills() -> dict:
+    """The fixed skill list. The web app finds these in a resume inside the visitor's browser,
+    so the resume itself is never sent; only the matched names are."""
+    from jobradar.agent.skills import IMPLIES, SKILLS
+
+    return {
+        "skills": [{"name": n, "pattern": p} for n, p in SKILLS.items()],
+        "implies": {k: list(v) for k, v in IMPLIES.items()},
+    }
+
+
+class MatchIn(BaseModel):
+    skills: list[str] = Field(min_length=1, max_length=MAX_MATCH_SKILLS)
+    years: int = Field(ge=0, le=30)
+    role_family: Literal[tuple(f for f in ROLE_FAMILIES if f != "Other")] | None = None  # type: ignore[valid-type]
+    limit: int = Field(default=25, ge=1, le=50)
+
+
+def _reach(years_required, years: int) -> str:
+    if years_required is None:
+        return "Not stated"
+    if float(years_required) <= years:
+        return "Within reach"
+    return "Stretch"
+
+
+@app.post("/match", dependencies=[Key])
+def match(body: MatchIn, svc: Svc) -> dict:
+    """Fresh tech jobs (last 14 days) at H-1B sponsors, ranked by how many of each job's
+    skills the visitor has. Nothing about the visitor is stored or logged."""
+    try:
+        sql = match_sql(body.skills, body.years, body.role_family, body.limit)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    have = set(body.skills)
+    jobs = []
+    for row in svc.rows(sql):
+        asked = [s for s in (row.pop("skills") or "").strip("|").split("|") if s]
+        row.pop("matched", None)
+        row.pop("n_skills", None)
+        matched = [s for s in asked if s in have]
+        row.update(
+            match_pct=round(100 * len(matched) / len(asked)) if asked else 0,
+            matched=matched,
+            missing=[s for s in asked if s not in have],
+            reach=_reach(row.get("years_required"), body.years),
+        )
+        jobs.append(row)
+    return {"count": len(jobs), "fresh_days": 14, "jobs": jobs}
+
+
 if os.environ.get("JOBRADAR_WATCHDOG") == "1":
     # Only on the watchdog function, which has no public URL: the Lambda Web Adapter passes
     # the daily EventBridge event here as POST /events. The public API never has this route.
@@ -235,8 +320,11 @@ class AskIn(BaseModel):
 
 
 @app.post("/ask", dependencies=[Key])
-def ask_endpoint(body: AskIn, svc: Svc) -> dict:
-    """Ask the assistant. Read-only tools; no resume on the server."""
+def ask_endpoint(
+    body: AskIn, svc: Svc, x_owner_key: Annotated[str | None, Header()] = None
+) -> dict:
+    """Ask the assistant. Read-only tools; no resume on the server. Visitors get public mode
+    (no Today list, no fit scores); the owner, with the passphrase, gets everything."""
     from jobradar.agent.assistant import DEFAULT_MODEL, ask
 
     if not os.environ.get("ANTHROPIC_API_KEY") and svc._client is None:
@@ -251,6 +339,7 @@ def ask_endpoint(body: AskIn, svc: Svc) -> dict:
     r = ask(
         body.question, svc.client(), svc.runner(), env=svc.env, model=model,
         schema_text=svc.schema(), searcher=svc.searcher(), resume_text=None,
+        public=not is_owner(x_owner_key),
     )  # fmt: skip
     return {
         "answer": r.answer,

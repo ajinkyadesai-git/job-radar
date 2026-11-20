@@ -49,3 +49,21 @@ export interface AskResult {
   seconds: number;
   questions_left_today: number | null;
 }
+
+export interface MatchJob {
+  posting_key: string;
+  company_name: string;
+  title: string;
+  location: string | null;
+  url: string;
+  role_family: string | null;
+  years_required: number | null;
+  salary_min_yearly_usd: number | null;
+  salary_max_yearly_usd: number | null;
+  company_lca_filings: number | null;
+  first_seen: string;
+  match_pct: number;
+  matched: string[];
+  missing: string[];
+  reach: "Within reach" | "Stretch" | "Not stated";
+}
