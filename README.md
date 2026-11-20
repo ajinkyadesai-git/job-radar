@@ -154,6 +154,10 @@ jobradar eval --regrade evals/results/<run>.jsonl   # re-grade saved answers for
   mode**: the SQL guard drops my personal table and the `fit_score` column, and the model never
   sees them in its schema.
 - **My resume and labels stay on the laptop.** The cloud gets skill names only.
+- **Usage counts without tracking people.** The site counts visits, tabs opened, resume
+  matches and questions per day, plus the site a visit came from (host name only). No cookies,
+  IP addresses or IDs are stored, and a feedback box saves only the message. The owner sees the
+  counts and feedback on a private Usage page.
 - **No secrets in the browser or the repo.** CloudFront adds the API key; GitHub signs in to AWS
   with OIDC, no stored keys.
 
@@ -168,8 +172,8 @@ writes the judgment.
 ### Serving and operations
 
 - **API** ([`src/jobradar/api`](src/jobradar/api)): FastAPI with `/health`, `/insights`
-  (cached), `/employers`, `/skills`, `/match`, `/ask` (daily cap counted in S3), and owner-only
-  `/jobs/today` and `/jobs/search`. Packaged in Docker (arm64) and run on **AWS Lambda** with
+  (cached), `/employers`, `/skills`, `/match`, `/ask` (daily cap counted in S3), `/track` and
+  `/feedback`, and owner-only `/jobs/today`, `/jobs/search` and `/usage`. Packaged in Docker (arm64) and run on **AWS Lambda** with
   the Lambda Web Adapter.
 - **Web app** ([`web/`](web/)): React 19 + TypeScript (Vite), Recharts. Served from a private S3
   bucket through **CloudFront**; `/api/*` goes to Lambda.
@@ -238,7 +242,8 @@ and fill it in, then `make ingest`, `jobradar ask "..."` or `make serve` (API do
 | 4 | Fit model; Claude agent with SQL, RAG and resume tools; evals | Done |
 | 5 | FastAPI, Docker, Terraform, CD to Lambda, alerts | Done |
 | 6 | MCP server, daily triage, web app with resume match | Done; v1.0 demo next |
-| Next | Privacy-safe usage counts and feedback; "who sponsors my job?" lookup for all professions; Kafka events and pipeline metrics; model comparison with MLflow | Planned |
+| CR19 | Privacy-safe usage counts, feedback box, owner Usage page, readable link | Done |
+| Next | "Who sponsors my job?" lookup for all professions; Kafka events and pipeline metrics; model comparison with MLflow | Planned |
 
 ## Data and ethics
 

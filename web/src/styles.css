@@ -5,7 +5,7 @@
   --paper: #f7f8f5;
   --ink: #1f2933;
   --muted: #56616b;
-  --rule: #d5dad3;
+  --rule: var(--rule);
   --filed: #1f7a5a;
   --stretch: #8a5a00;
   --white: #ffffff;
@@ -512,6 +512,7 @@ button {
 
 .match-invite button,
 .match-panel .primary,
+.feedback .primary,
 .match-panel details button {
   font-weight: 600;
   color: var(--white);
@@ -522,7 +523,8 @@ button {
   cursor: pointer;
 }
 
-.match-panel button:disabled {
+.match-panel button:disabled,
+.feedback button:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -710,4 +712,101 @@ button.link {
 
 .footer .link {
   font-size: inherit;
+}
+
+/* Feedback box and the owner's Usage page (CR19) */
+.feedback {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  margin-top: 12px;
+}
+
+.feedback label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.feedback textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  resize: vertical;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.feedback-done {
+  color: var(--filed);
+  font-weight: 600;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table.usage {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 16px;
+  font-size: 0.9375rem;
+}
+
+table.usage th,
+table.usage td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+
+table.usage .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 32px;
+  margin-top: 32px;
+}
+
+.usage-cols h3 {
+  font-size: 1.125rem;
+  margin-bottom: 8px;
+}
+
+.sites {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sites li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.feedback-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feedback-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.feedback-list span {
+  font-size: 0.8125rem;
+  color: var(--muted);
 }

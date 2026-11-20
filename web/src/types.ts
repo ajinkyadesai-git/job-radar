@@ -67,3 +67,15 @@ export interface MatchJob {
   missing: string[];
   reach: "Within reach" | "Stretch" | "Not stated";
 }
+
+export interface UsageDay {
+  day: string;
+  events: Record<string, number>;
+  referrers: Record<string, number>;
+}
+
+export interface FeedbackItem {
+  at: string;
+  page: string | null;
+  message: string;
+}
