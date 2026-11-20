@@ -3,7 +3,9 @@
     GET  /health          is the service up (no key, no database call; used by deploy checks)
     GET  /jobs/today      the Today list, best fit first, with optional filters
     GET  /jobs/search     search job descriptions by meaning
-    POST /ask             ask the assistant a question (costs API money)
+    GET  /employers       the tracked companies: open jobs and H-1B record
+    GET  /insights        numbers for the web app's charts (cached for an hour)
+    POST /ask             ask the assistant a question (costs API money; capped per day)
 
 Everything except /health needs the header X-API-Key matching JOBRADAR_API_KEY. If that
 variable is not set, those endpoints answer 503 rather than run open to the internet.
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -25,7 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from jobradar.agent.sql_guard import check
-from jobradar.queries import ROLE_FAMILIES, today_sql
+from jobradar.queries import EMPLOYERS_SQL, INSIGHTS, ROLE_FAMILIES, today_sql
 
 
 def load_secrets_from_ssm(prefix: str | None = None) -> list[str]:
@@ -75,6 +78,9 @@ class Services:
     _client: object | None = None
     _schema: str | None = None
     searcher_checked: bool = False
+    _quota: object | None = None
+    quota_checked: bool = False
+    insights_cache: tuple[float, dict] | None = None
 
     def runner(self):
         if self._runner is None:
@@ -105,6 +111,18 @@ class Services:
         if self._schema is None:
             self._schema = self.runner().describe()
         return self._schema
+
+    def quota(self):
+        if self._quota is None and not self.quota_checked:
+            self.quota_checked = True
+            from jobradar.api.quota import quota_from_environment
+
+            self._quota = quota_from_environment()
+        return self._quota
+
+    def rows(self, sql: str) -> list[dict]:
+        columns, rows = self.runner().run(check(sql, env=self.env).sql)
+        return [dict(zip(columns, r, strict=False)) for r in rows]
 
 
 @lru_cache(maxsize=1)
@@ -180,6 +198,26 @@ def jobs_search(
     }
 
 
+@app.get("/employers", dependencies=[Key])
+def employers(svc: Svc) -> dict:
+    """Every tracked company: open US jobs and its H-1B filing record."""
+    rows = svc.rows(EMPLOYERS_SQL)
+    return {"count": len(rows), "employers": rows}
+
+
+INSIGHTS_TTL_S = 3600  # the data changes once a day
+
+
+@app.get("/insights", dependencies=[Key])
+def insights(svc: Svc) -> dict:
+    """Numbers for the web app's charts. Cached per server for an hour."""
+    if svc.insights_cache and time.time() - svc.insights_cache[0] < INSIGHTS_TTL_S:
+        return svc.insights_cache[1]
+    data = {name: svc.rows(sql) for name, sql in INSIGHTS.items()}
+    svc.insights_cache = (time.time(), data)
+    return data
+
+
 if os.environ.get("JOBRADAR_WATCHDOG") == "1":
     # Only on the watchdog function, which has no public URL: the Lambda Web Adapter passes
     # the daily EventBridge event here as POST /events. The public API never has this route.
@@ -203,6 +241,12 @@ def ask_endpoint(body: AskIn, svc: Svc) -> dict:
 
     if not os.environ.get("ANTHROPIC_API_KEY") and svc._client is None:
         raise HTTPException(503, "ANTHROPIC_API_KEY is not set on the server")
+    remaining = None
+    quota = svc.quota()
+    if quota is not None:
+        allowed, remaining = quota.take()
+        if not allowed:
+            raise HTTPException(429, "The daily question limit is reached; try again tomorrow.")
     model = os.environ.get("JOBRADAR_AGENT_MODEL") or DEFAULT_MODEL
     r = ask(
         body.question, svc.client(), svc.runner(), env=svc.env, model=model,
@@ -217,4 +261,5 @@ def ask_endpoint(body: AskIn, svc: Svc) -> dict:
         "output_tokens": r.output_tokens,
         "seconds": r.seconds,
         "stopped_early": r.stopped_early,
+        "questions_left_today": remaining,
     }

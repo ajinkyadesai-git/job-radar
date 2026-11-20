@@ -36,3 +36,30 @@ def today_sql(limit: int = 20, reach: str | None = None, role_family: str | None
         f"select {TODAY_COLUMNS} from mart_new_postings {where}"
         f"order by fit_score desc nulls last, first_seen desc limit {int(limit)}"
     )
+
+
+# The Insights page (replaces the Tableau dashboard, CR16). Fixed queries, no user input.
+INSIGHTS = {
+    "jobs_by_family": """select coalesce(role_family, 'Other') as role_family,
+            count(*) as open_jobs, count_if(fit_score >= 0.5) as good_fit
+        from fct_postings where is_open and is_us
+        group by 1 order by open_jobs desc""",
+    "new_per_day": """select first_seen as day, count(*) as new_jobs
+        from fct_postings where is_us and first_seen >= date_sub(current_date(), 30)
+        group by first_seen order by first_seen""",
+    "pay_by_family": """select coalesce(role_family, 'Other') as role_family,
+            count(*) as with_salary,
+            percentile_approx((salary_min_yearly_usd
+                + coalesce(salary_max_yearly_usd, salary_min_yearly_usd)) / 2, 0.5)
+                as median_posted_midpoint
+        from fct_postings
+        where is_open and is_us and salary_min_yearly_usd is not null
+        group by 1 order by median_posted_midpoint desc""",
+    "top_sponsors": """select company_name, filings, certified_rate, median_filed_wage,
+            open_us_postings
+        from dim_employer where filings > 0 order by filings desc limit 15""",
+}
+
+EMPLOYERS_SQL = """select company, company_name, board_source, open_us_postings, filings,
+        certified_rate, median_filed_wage, is_h1b_dependent_employer
+    from dim_employer order by open_us_postings desc, filings desc limit 100"""

@@ -49,6 +49,20 @@ resource "aws_iam_role_policy" "api_secrets" {
   })
 }
 
+# /ask keeps a per-day question count in S3, so the public web app has a hard daily cap.
+resource "aws_iam_role_policy" "api_ask_usage" {
+  name = "ask-daily-counter"
+  role = aws_iam_role.api.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:PutObject"]
+      Resource = "${aws_s3_bucket.raw.arn}/prod/ops/ask_usage/*"
+    }]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/aws/lambda/job-radar-api"
   retention_in_days = 14
@@ -65,8 +79,12 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      JOBRADAR_SSM_PREFIX = local.ssm_prefix
-      JOBRADAR_API_ENV    = "prod"
+      JOBRADAR_SSM_PREFIX    = local.ssm_prefix
+      JOBRADAR_API_ENV       = "prod"
+      JOBRADAR_S3_BUCKET     = aws_s3_bucket.raw.bucket # the /ask daily counter (T42)
+      JOBRADAR_S3_PREFIX     = "prod"
+      JOBRADAR_ASK_DAILY_CAP = "30"
+      JOBRADAR_AGENT_MODEL   = "claude-haiku-5-5" # passed 40/40 on the categories the API serves
     }
   }
 
