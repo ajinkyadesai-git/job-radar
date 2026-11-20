@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from jobradar.agent.job_tools import RESUME_FIT_TOOL, SALARY_TOOL, ResumeFitTool, SalaryTool
+from jobradar.agent.sql_guard import PUBLIC_BLOCKED_COLUMNS, PUBLIC_TABLES
 from jobradar.agent.tools import RUN_SQL_TOOL, SEARCH_TOOL, Runner, Searcher, SearchTool, SqlTool
 
 DEFAULT_MODEL = os.environ.get("JOBRADAR_AGENT_MODEL", "claude-sonnet-5-5")
@@ -104,6 +105,23 @@ class AskResult:
     stop_reason: str = ""
 
 
+PUBLIC_NOTE = """
+
+PUBLIC MODE: you are answering a visitor of the public Job Radar web app, not its owner.
+The owner's Today list (mart_new_postings) and fit scores (fit_score) are private; you can't
+query them. If asked about them, say they are private. "My level", "my skills" or "jobs for
+me" mean the visitor, whose details you don't have: suggest "Match my resume" on the Today
+page, or answer for the whole market."""
+
+
+def public_schema(text: str) -> str:
+    """The schema text without the private table and column (for public questions)."""
+    sections = text.split("\n" + "workspace.")
+    keep = [s for s in sections if not s.split(":", 1)[0].endswith("mart_new_postings")]
+    lines = ("\n" + "workspace.").join(keep).splitlines()
+    return "\n".join(line for line in lines if "fit_score" not in line)
+
+
 def ask(
     question: str,
     client,
@@ -114,6 +132,7 @@ def ask(
     schema_text: str | None = None,
     searcher: Searcher | None = None,
     resume_text: str | None = None,
+    public: bool = False,
 ) -> AskResult:
     """client: an anthropic.Anthropic() (or a test double with messages.create).
 
@@ -121,14 +140,22 @@ def ask(
     simply not offered to the model.
     """
     started = time.time()
-    handlers: dict[str, tuple[dict, object]] = {"run_sql": (RUN_SQL_TOOL, SqlTool(runner, env=env))}
+    sql_tool = (
+        SqlTool(runner, env=env, tables=PUBLIC_TABLES, blocked_columns=PUBLIC_BLOCKED_COLUMNS)
+        if public
+        else SqlTool(runner, env=env)
+    )
+    handlers: dict[str, tuple[dict, object]] = {"run_sql": (RUN_SQL_TOOL, sql_tool)}
     if searcher is not None:
         handlers["search_job_text"] = (SEARCH_TOOL, SearchTool(searcher))
     handlers["salary_check"] = (SALARY_TOOL, SalaryTool(runner, env=env))
     if resume_text and resume_text.strip():
         handlers["resume_fit"] = (RESUME_FIT_TOOL, ResumeFitTool(runner, resume_text, env=env))
     tools = [spec for spec, _ in handlers.values()]
-    system = SYSTEM.format(schema=schema_text if schema_text is not None else runner.describe())
+    schema = schema_text if schema_text is not None else runner.describe()
+    system = SYSTEM.format(schema=public_schema(schema) if public else schema)
+    if public:
+        system += PUBLIC_NOTE
     messages: list[dict] = [{"role": "user", "content": question}]
     result = AskResult(question=question, answer="", model=model)
 

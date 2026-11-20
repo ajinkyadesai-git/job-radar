@@ -127,10 +127,14 @@ class SqlTool:
     runner: Runner
     env: str = "prod"
     calls: list[ToolCall] = field(default_factory=list)
+    tables: tuple[str, ...] | None = None  # None: all gold tables
+    blocked_columns: tuple[str, ...] = ()
 
     def __call__(self, sql: str) -> str:
         try:
-            safe = check(sql, env=self.env)
+            safe = check(
+                sql, env=self.env, tables=self.tables, blocked_columns=self.blocked_columns
+            )
         except SqlRejected as e:
             self.calls.append(ToolCall(sql, False, f"refused: {e}"))
             return f"Query refused: {e}"

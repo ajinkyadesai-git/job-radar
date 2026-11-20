@@ -1,8 +1,14 @@
-import type { AskResult, Employer, Insights, Job } from "./types";
+import { currentOwnerKey } from "./owner";
+import type { SkillVocab } from "./resume";
+import type { AskResult, Employer, Insights, Job, MatchJob } from "./types";
 
 // Same-origin /api: the dev server (vite.config.ts) or CloudFront adds the API key.
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, init);
+// The owner's passphrase, when this browser has it, unlocks the owner's own list.
+async function call<T>(path: string, init?: RequestInit, ownerOverride?: string): Promise<T> {
+  const headers = new Headers(init?.headers);
+  const owner = ownerOverride ?? currentOwnerKey();
+  if (owner) headers.set("X-Owner-Key", owner);
+  const res = await fetch(`/api${path}`, { ...init, headers });
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {
@@ -26,6 +32,8 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  /** Checks a passphrase before it is saved. */
+  me: (passphrase: string) => call<{ owner: boolean }>("/me", undefined, passphrase),
   today: (params: { reach?: string; role_family?: string; limit?: number }) => {
     const q = new URLSearchParams({ limit: String(params.limit ?? 50) });
     if (params.reach) q.set("reach", params.reach);
@@ -34,6 +42,13 @@ export const api = {
   },
   employers: () => call<{ count: number; employers: Employer[] }>("/employers"),
   insights: () => call<Insights>("/insights"),
+  skills: () => call<SkillVocab>("/skills"),
+  match: (body: { skills: string[]; years: number; role_family?: string }) =>
+    call<{ count: number; fresh_days: number; jobs: MatchJob[] }>("/match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, limit: 30 }),
+    }),
   ask: (question: string) =>
     call<AskResult>("/ask", {
       method: "POST",

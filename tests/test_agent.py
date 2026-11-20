@@ -220,3 +220,37 @@ def test_runner_reconnects_once_when_the_databricks_session_expired(monkeypatch)
     assert old.closed and runner.conn is not old
     assert tools.is_stale_session(RuntimeError("Invalid SessionHandle"))
     assert not tools.is_stale_session(RuntimeError("PARSE_SYNTAX_ERROR"))
+
+
+def test_public_mode_hides_the_today_list_and_fit_scores():
+    from jobradar.agent.sql_guard import (
+        PUBLIC_BLOCKED_COLUMNS,
+        PUBLIC_TABLES,
+        SqlRejected,
+        check,
+    )
+
+    public = {"tables": PUBLIC_TABLES, "blocked_columns": PUBLIC_BLOCKED_COLUMNS}
+    for sql, why in (
+        ("select title from mart_new_postings", "not allowed"),
+        ("select title, fit_score from fct_postings", "private"),
+        ("select title from fct_postings order by fit_score desc", "private"),
+        ("select * from fct_postings", "SELECT *"),
+    ):
+        with pytest.raises(SqlRejected, match=why):
+            check(sql, **public)
+    assert check("select count(*) from fct_postings where is_open", **public)
+    assert check("select title, fit_score from mart_new_postings")  # the owner: unchanged
+
+
+def test_public_schema_drops_the_private_table_and_column():
+    from jobradar.agent.assistant import public_schema
+
+    text = (
+        "workspace.jobradar_gold.fct_postings:\n  title string\n  fit_score double\n"
+        "workspace.jobradar_gold.mart_new_postings:\n  title string\n"
+        "workspace.jobradar_gold.dim_employer:\n  company string"
+    )
+    out = public_schema(text)
+    assert "fit_score" not in out and "mart_new_postings" not in out
+    assert "fct_postings:" in out and "dim_employer:" in out

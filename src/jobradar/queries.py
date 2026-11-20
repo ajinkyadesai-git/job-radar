@@ -63,3 +63,53 @@ INSIGHTS = {
 EMPLOYERS_SQL = """select company, company_name, board_source, open_us_postings, filings,
         certified_rate, median_filed_wage, is_h1b_dependent_employer
     from dim_employer order by open_us_postings desc, filings desc limit 100"""
+
+
+# Resume match for visitors (CR09). The visitor's skills must be names from the fixed list in
+# agent/skills.py, so they are safe to put in the SQL; years and limits are plain integers.
+FRESH_DAYS = 14
+MAX_MATCH_SKILLS = 40
+MATCH_COLUMNS = (
+    "posting_key, company_name, title, location, url, role_family, years_required, "
+    "salary_min_yearly_usd, salary_max_yearly_usd, company_lca_filings, "
+    "company_median_filed_wage, first_seen, skills, n_skills"
+)
+
+
+def match_sql(
+    skills: list[str], years: int, role_family: str | None = None, limit: int = 25
+) -> str:
+    """Fresh tech jobs at H-1B sponsors, ranked by the share of each job's skills the visitor
+    has. Raises ValueError for anything outside the allowed values."""
+    from jobradar.agent.skills import SKILLS
+
+    names = sorted(set(skills))
+    if not 1 <= len(names) <= MAX_MATCH_SKILLS:
+        raise ValueError(f"give between 1 and {MAX_MATCH_SKILLS} skills")
+    unknown = [n for n in names if n not in SKILLS]
+    if unknown:
+        raise ValueError(f"unknown skills: {unknown[:5]}")
+    if not 0 <= int(years) <= 30:
+        raise ValueError("years must be between 0 and 30")
+    if not 1 <= int(limit) <= 50:
+        raise ValueError("limit must be between 1 and 50")
+    family = ""
+    if role_family:
+        if role_family not in ROLE_FAMILIES or role_family == "Other":
+            raise ValueError(f"role_family must be one of {ROLE_FAMILIES[:-1]}")
+        family = f"and role_family = '{role_family}' "
+    hits = " + ".join(
+        "case when instr(skills, '|" + n.replace("'", "") + "|') > 0 then 1 else 0 end"
+        for n in names
+    )
+    return (
+        f"select * from (select {MATCH_COLUMNS}, ({hits}) as matched from fct_postings "
+        "where is_open and is_us and is_sponsor and is_fte_or_contract "
+        "and not has_visa_blocker and not is_perm_style_ad "
+        "and coalesce(role_family, 'Other') <> 'Other' "
+        f"and first_seen >= date_sub(current_date(), {FRESH_DAYS}) "
+        "and n_skills >= 3 "
+        f"and coalesce(years_required, 0) <= {int(years) + 2} {family}) as m "
+        "where matched > 0 "
+        f"order by matched / n_skills desc, matched desc, first_seen desc limit {int(limit)}"
+    )

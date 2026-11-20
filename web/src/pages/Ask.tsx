@@ -7,7 +7,7 @@ import type { AskResult } from "../types";
 const EXAMPLES = [
   "Which companies have the most open data engineering jobs?",
   "What do Ramp's H-1B filings pay for engineers?",
-  "How many new jobs at my level were posted this week?",
+  "Which companies filed the most H-1B wages for software engineers?",
 ];
 
 export default function Ask() {

@@ -6,9 +6,12 @@ select
     s.filings                      as company_lca_filings,
     s.certified_rate               as company_certified_rate,
     s.median_filed_wage            as company_median_filed_wage,
-    f.fit_score                    -- 0-1, your fit model; null if not scored yet
+    f.fit_score,                   -- 0-1, your fit model; null if not scored yet
+    k.skills,                      -- '|SQL|Python|': tracked skills the posting asks for
+    k.n_skills
 from {{ ref('stg_postings') }} as p
 left join {{ source('ml', 'fit_scores') }} as f on f.posting_key = p.posting_key
+left join {{ source('ml', 'posting_skills') }} as k on k.posting_key = p.posting_key
 left join {{ ref('companies') }} as c on c.slug = p.company
 left join (
     select company, filings, certified_rate, median_filed_wage
