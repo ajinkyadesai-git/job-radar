@@ -179,3 +179,44 @@ def test_cut_off_reply_gets_a_final_answer():
     final_msgs = client.sent[-1]["messages"]
     assert final_msgs[-1]["role"] == "user" and final_msgs[-2]["role"] == "assistant"
     assert final_msgs[-1]["content"][-1]["type"] == "text"
+
+
+def test_runner_reconnects_once_when_the_databricks_session_expired(monkeypatch):
+    from jobradar.agent import tools
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self.description = [("n",)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql):
+            if self.conn.stale:
+                raise RuntimeError("INVALID_STATE: Invalid SessionHandle: SessionHandle [x]")
+
+        def fetchall(self):
+            return [(1,)]
+
+    class Conn:
+        def __init__(self, stale):
+            self.stale, self.closed = stale, False
+
+        def cursor(self):
+            return Cursor(self)
+
+        def close(self):
+            self.closed = True
+
+    conns = [Conn(stale=True), Conn(stale=False)]
+    monkeypatch.setattr(tools.DatabricksRunner, "_connect", lambda self: conns.pop(0))
+    runner = tools.DatabricksRunner()
+    old = runner.conn
+    assert runner.run("select 1") == (["n"], [(1,)])
+    assert old.closed and runner.conn is not old
+    assert tools.is_stale_session(RuntimeError("Invalid SessionHandle"))
+    assert not tools.is_stale_session(RuntimeError("PARSE_SYNTAX_ERROR"))

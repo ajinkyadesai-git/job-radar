@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -143,39 +144,72 @@ class SqlTool:
         return format_rows(columns, rows)
 
 
+# Databricks ends idle sessions; a long-lived process (MCP server, warm Lambda) then gets
+# "Invalid SessionHandle" on its next query. Those errors mean: reconnect and try once more.
+_STALE = ("invalid sessionhandle", "invalid_state", "session is closed", "connection is closed")
+
+
+def is_stale_session(error: Exception) -> bool:
+    return any(s in str(error).lower() for s in _STALE)
+
+
 class DatabricksRunner:
-    """Runs checked queries on the SQL warehouse from .env (DATABRICKS_*)."""
+    """Runs checked queries on the SQL warehouse from .env (DATABRICKS_*).
+
+    Reconnects once when the session has expired, so long-running processes keep working.
+    """
 
     def __init__(self, env: str = "prod"):
+        self.env = env
+        self.conn = self._connect()
+
+    def _connect(self):
         from databricks import sql
 
-        self.env = env
-        self.conn = sql.connect(
+        return sql.connect(
             server_hostname=os.environ["DATABRICKS_SERVER_HOSTNAME"],
             http_path=os.environ["DATABRICKS_HTTP_PATH"],
             access_token=os.environ["DATABRICKS_TOKEN"],
         )
 
+    def _retry_stale(self, fn):
+        try:
+            return fn()
+        except Exception as e:
+            if not is_stale_session(e):
+                raise
+            with contextlib.suppress(Exception):
+                self.conn.close()
+            self.conn = self._connect()
+            return fn()
+
     def run(self, sql: str) -> tuple[list[str], list[tuple]]:
-        with self.conn.cursor() as cur:
-            cur.execute(sql)
-            columns = [d[0] for d in cur.description]
-            return columns, [tuple(r) for r in cur.fetchall()]
+        def go():
+            with self.conn.cursor() as cur:
+                cur.execute(sql)
+                columns = [d[0] for d in cur.description]
+                return columns, [tuple(r) for r in cur.fetchall()]
+
+        return self._retry_stale(go)
 
     def describe(self) -> str:
         """Column names, types and comments of the gold tables, for the system prompt."""
         schema = gold_schema(self.env)
-        lines = []
-        with self.conn.cursor() as cur:
-            for t in GOLD_TABLES:
-                cur.execute(f"DESCRIBE TABLE {schema}.{t}")
-                cols = [
-                    f"{r[0]} {r[1]}" + (f" -- {r[2]}" if len(r) > 2 and r[2] else "")
-                    for r in cur.fetchall()
-                    if r[0] and not str(r[0]).startswith("#")
-                ]
-                lines.append(f"{schema}.{t}:\n  " + "\n  ".join(cols))
-        return "\n".join(lines)
+
+        def go():
+            lines = []
+            with self.conn.cursor() as cur:
+                for t in GOLD_TABLES:
+                    cur.execute(f"DESCRIBE TABLE {schema}.{t}")
+                    cols = [
+                        f"{r[0]} {r[1]}" + (f" -- {r[2]}" if len(r) > 2 and r[2] else "")
+                        for r in cur.fetchall()
+                        if r[0] and not str(r[0]).startswith("#")
+                    ]
+                    lines.append(f"{schema}.{t}:\n  " + "\n  ".join(cols))
+            return "\n".join(lines)
+
+        return self._retry_stale(go)
 
     def close(self) -> None:
         self.conn.close()

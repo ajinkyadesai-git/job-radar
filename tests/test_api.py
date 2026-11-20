@@ -53,6 +53,7 @@ class Client:
 def svc(monkeypatch):
     monkeypatch.setenv("JOBRADAR_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.delenv("JOBRADAR_S3_BUCKET", raising=False)  # no daily cap unless a test sets one
     s = Services(env="prod", _runner=Runner(), _searcher=Searcher(), _client=Client())
     app.dependency_overrides[get_services] = lambda: s
     yield s
@@ -164,3 +165,36 @@ def test_no_prefix_means_no_ssm_call(monkeypatch):
 
     monkeypatch.delenv("JOBRADAR_SSM_PREFIX", raising=False)
     assert load_secrets_from_ssm() == []
+
+
+def test_employers_and_insights_use_fixed_guarded_queries(api, svc):
+    r = api.get("/employers", headers=KEY)
+    assert r.status_code == 200 and r.json()["count"] == 1
+    assert "workspace.jobradar_gold.dim_employer" in svc._runner.ran[-1]
+    body = api.get("/insights", headers=KEY).json()
+    assert set(body) == {"jobs_by_family", "new_per_day", "pay_by_family", "top_sponsors"}
+    assert all("workspace.jobradar_gold." in sql for sql in svc._runner.ran[1:])
+    before = len(svc._runner.ran)
+    api.get("/insights", headers=KEY)  # served from the hour-long cache
+    assert len(svc._runner.ran) == before
+    assert api.get("/insights").status_code == 401
+
+
+def test_ask_stops_at_the_daily_cap(api, svc, monkeypatch):
+    import boto3
+    from moto import mock_aws
+
+    from jobradar.api.quota import DailyQuota
+
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+    with mock_aws():
+        s3 = boto3.client("s3")
+        s3.create_bucket(
+            Bucket="jr-test", CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+        )
+        svc._quota, svc.quota_checked = DailyQuota(s3, "jr-test", cap=1), True
+        first = api.post("/ask", json={"question": "How many open jobs?"}, headers=KEY)
+        assert first.status_code == 200 and first.json()["questions_left_today"] == 0
+        second = api.post("/ask", json={"question": "And now?"}, headers=KEY)
+        assert second.status_code == 429 and "limit" in second.json()["detail"]
+        assert len(svc._client.sent) == 2  # the refused question never reached Claude
