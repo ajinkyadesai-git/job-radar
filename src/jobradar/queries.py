@@ -103,13 +103,36 @@ def match_sql(
         for n in names
     )
     return (
-        f"select * from (select {MATCH_COLUMNS}, ({hits}) as matched from fct_postings "
+        # One row per company and title: the same job is often posted once per city.
+        f"select * from (select {MATCH_COLUMNS}, ({hits}) as matched, row_number() over "
+        "(partition by company_name, lower(title) order by first_seen desc, posting_key) as copy "
+        "from fct_postings "
         "where is_open and is_us and is_sponsor and is_fte_or_contract "
         "and not has_visa_blocker and not is_perm_style_ad "
         "and coalesce(role_family, 'Other') <> 'Other' "
         f"and first_seen >= date_sub(current_date(), {FRESH_DAYS}) "
         "and n_skills >= 3 "
-        f"and coalesce(years_required, 0) <= {int(years) + 2} {family}) as m "
-        "where matched > 0 "
-        f"order by matched / n_skills desc, matched desc, first_seen desc limit {int(limit)}"
+        f"and coalesce(years_required, 0) <= {int(years) + 2} "
+        f"{_level_filter(int(years))}{family}) as m "
+        "where matched > 0 and copy = 1 "
+        # Rank by a smoothed share: 7 of 7 skills beats 3 of 3, and 9 of 10 beats 4 of 4, so a
+        # job that lists only a few skills can't top the list just by being short.
+        f"order by (matched + 0.0) / (n_skills + {MATCH_SMOOTHING}) desc, matched desc, "
+        f"first_seen desc limit {int(limit)}"
     )
+
+
+MATCH_SMOOTHING = 3
+
+
+def _level_filter(years: int) -> str:
+    """Hide titles above the visitor's level: Staff, Principal and Director+ under 8 years;
+    Senior under 4. Many postings don't state years, so the title is the only signal."""
+    hidden = []
+    if years < 8:
+        hidden += ["Staff / principal", "Director+"]
+    if years < 4:
+        hidden.append("Senior")
+    if not hidden:
+        return ""
+    return "and seniority not in (" + ", ".join(f"'{h}'" for h in hidden) + ") "

@@ -1,25 +1,46 @@
 # Job Radar
 
-Open-source pipeline and AI agent that finds new job postings every day, scores how well each
-one fits you, and shows how each employer hires and pays using public Department of Labor (DOL)
-filings.
+**New US tech jobs at companies that actually sponsor H-1B visas, matched to your resume, refreshed every morning.**
 
-> **Status: Milestone 6 of 6 (serving).** Daily ingest, the Databricks lakehouse, dbt gold
-> models with CI, a personal fit model and a read-only Claude assistant are built. The
-> assistant passes **56 of 57** eval questions, including all safety and honesty questions
-> ([results](#assistant-and-evals)). It is live as an API on AWS Lambda (Terraform, keyless
-> CD, daily watchdog) and as an [MCP server](#use-it-from-claude-desktop-mcp) for Claude
-> Desktop. The web app is next; see the [roadmap](#roadmap).
+**[Live demo → ajinkyadesai-git.github.io/job-radar](https://ajinkyadesai-git.github.io/job-radar)**
 
-## What it will do
+Job seekers on visas lose hours checking career pages and guessing which employers will sponsor.
+Job Radar collects about 15,000 open jobs a day from 74 companies, checks each employer against
+554,000 public Department of Labor (DOL) H-1B wage filings, drops postings that say they won't
+sponsor, and ranks what's left. Upload a resume and it shows the freshest jobs that fit your
+skills, with what's missing and whether the experience asked for is within reach. Your resume is
+read in your browser and never uploaded.
 
-- Pull job postings daily from public Greenhouse and Ashby job boards for 74 companies.
-- Model postings and DOL wage filings in Databricks (PySpark, Delta Lake) and dbt, with tests.
-- Score each posting's fit with a classifier trained on the owner's own decisions.
-- Answer questions with a read-only Claude agent that uses SQL and RAG over job descriptions,
-  measured by a 57-question eval suite.
-- Serve it through a FastAPI service on AWS Lambda, a React web app, an MCP server for Claude
-  Desktop, a daily triage summary and a Tableau dashboard.
+![Resume match: fresh jobs at H-1B sponsors ranked by how many of each job's skills you have](docs/images/web-match.png)
+
+| | |
+|---|---|
+| Open jobs tracked daily | about 15,000 from 74 companies (Greenhouse and Ashby public boards) |
+| DOL filings linked | 554,190 cases; 96% of open jobs matched to their employer's filings |
+| Data tests | 64 dbt models and tests on every build; a failing test blocks the merge |
+| AI evals | 56 of 57 on Sonnet; Haiku 40 of 40 on the categories the public site uses; 100% safety and honesty |
+| Code tests | about 250 Python tests and 8 web tests, run in CI on every PR |
+| Running cost | free tiers; AI spend capped (public Ask 30 questions a day, triage $0.05 a day) |
+
+## What you can do on the site
+
+- **Match my resume.** Drop in a PDF, Word or text resume. The page finds your skills, lets you
+  fix them, and ranks jobs from the last two weeks by the share of each job's skills you have,
+  with missing skills and reach for your years of experience.
+- **Employers.** All 74 companies with their H-1B record: filings, approval rate, median filed
+  wage, and whether they're H-1B dependent.
+- **Insights.** New jobs per day, the most-asked skills, pay by role family, and top sponsors.
+- **Ask.** Plain-English questions to a Claude assistant that answers from the data, with a
+  daily cap.
+
+| | |
+|---|---|
+| ![Employers and their H-1B record](docs/images/web-employers.png) | ![Insights charts](docs/images/web-insights.png) |
+| ![Ask: plain-English questions answered from the data](docs/images/web-ask.png) | ![Claude Desktop using Job Radar's tools over MCP](docs/images/mcp-claude-desktop.png) |
+
+For me, the owner, the same site has a private view: my own ranked list, scored by a model
+trained on 200 jobs I labeled, behind a passphrase the API checks. A daily email picks the jobs
+I should apply to, and the tools also work inside Claude Desktop through MCP.
 
 ## Architecture
 
@@ -28,186 +49,202 @@ flowchart LR
   subgraph Sources
     GH[Greenhouse boards]
     AB[Ashby boards]
-    DOL[DOL disclosure files]
+    DOL[DOL H-1B filings]
   end
-  ING[Ingest<br/>Python, GitHub Actions]
-  S3[(S3 raw zone)]
+  subgraph Daily["Daily run (GitHub Actions)"]
+    ING[Ingest<br/>Python]
+    SKI[Skill tagging<br/>+ fit scoring]
+    TRI[Triage<br/>Claude Haiku]
+  end
+  S3[(S3<br/>raw zone, models,<br/>run logs)]
   subgraph Databricks
-    SLV[Bronze and silver<br/>PySpark, Delta]
+    BRZ[Bronze and silver<br/>Auto Loader, PySpark, Delta]
     GLD[Gold marts<br/>dbt]
   end
-  subgraph AI
-    FIT[Fit model]
-    AGT[Claude agent<br/>SQL + RAG tools]
+  subgraph AWS["AWS (Terraform)"]
+    API[FastAPI on Lambda<br/>SQL guard, Claude agent]
+    CF[CloudFront<br/>+ React app in S3]
+    WD[Watchdog<br/>+ SNS alerts]
   end
-  subgraph Serving
-    API[FastAPI on Lambda]
-    WEB[React app]
-    MCP[MCP server]
-    TAB[Tableau]
-  end
+  MCP[MCP server<br/>Claude Desktop]
   GH --> ING
   AB --> ING
-  DOL --> ING
-  ING --> S3 --> SLV --> GLD
-  GLD --> FIT --> AGT
-  GLD --> AGT --> API --> WEB
-  AGT --> MCP
-  GLD --> TAB
+  DOL --> S3
+  ING --> S3 --> BRZ --> GLD
+  GLD --> SKI --> GLD
+  GLD --> TRI -->|email| SNS((SNS))
+  GLD --> API --> CF
+  GLD --> MCP
+  WD --> SNS
 ```
 
-## Ingestion (built)
+**Daily flow.** At about 6 am Pacific, GitHub Actions pulls every board into S3 (idempotent, one
+request a second), starts the Databricks job that loads bronze and merges silver (first seen,
+last seen, closed), rebuilds and tests the dbt gold models, tags each open job with its skills,
+scores fit with a published model, rebuilds the postings table, and emails a triage digest. A
+watchdog on Lambda emails me if the run is late, failed or stale.
 
-- Reads [`config/companies.yaml`](config/companies.yaml): each company's job-board vendor and
-  board token.
-- Pulls each board at **1 request per second** with an honest User-Agent, retries 429 and 5xx
-  responses with backoff, and logs a 404 as `board_not_found` without stopping the run.
-- Checks only the contract the next layer relies on (a `jobs` list with `id` and `title`) and
-  records **new fields** it has not seen before, so schema changes show up in the run log.
-- Lands each response **unchanged** in S3, encrypted.
-- **Idempotent:** a board whose response hash matches the last landed one is skipped, so running
-  twice on the same day writes nothing new (covered by a test).
-- Writes one run-log row per board plus a summary row.
+## How it's built
 
-```
-s3://<bucket>/<env>/
-  raw/{greenhouse|ashby}/{company}/load_date=YYYY-MM-DD/{sha256[:16]}.json
-  state/{source}/{company}.json
-  ops/pipeline_runs/run_date=YYYY-MM-DD/run_id={run_id}.jsonl
-```
+### Data pipeline
 
-## Assistant and evals
+- **Ingest** ([`src/jobradar/ingest`](src/jobradar)): Greenhouse and Ashby public APIs at 1
+  request per second with retries and backoff. Raw JSON lands unchanged in an encrypted,
+  versioned S3 bucket. A response whose hash matches the last one is skipped, so a second run on
+  the same day writes nothing.
+- **Lakehouse** ([`spark/`](spark/)): Databricks reads S3 through a read-only external location;
+  **Auto Loader** loads each new file once into bronze; a **Delta MERGE** keeps one silver row
+  per posting with first seen, last seen and closed dates.
+- **DOL filings**: four quarters of LCA disclosure data, wages converted to yearly, personal
+  columns dropped before upload. Employers are matched by name normalization plus a
+  hand-checked alias table (96% of open jobs).
+- **dbt** ([`dbt/`](dbt/)): staging views and gold tables (`fct_postings`, `dim_employer`,
+  `fct_lca`, `mart_new_postings`, `mart_sponsor_stats`). Business rules (US only, role family,
+  seniority, visa blockers such as "will not sponsor") are macros with unit tests; an audit
+  table records the phrase behind every dropped posting. Dev, CI and prod targets.
 
-`jobradar ask "..."` sends a question to a Claude assistant with four **read-only** tools:
+### Fit model
 
-| Tool | What it does |
-|---|---|
-| `run_sql` | One SELECT over the five gold tables, checked by a SQL guard (no writes, no other schemas, no file or network functions, capped at 100 rows) |
-| `search_job_text` | Meaning-based search over job descriptions (local `bge-small` embeddings + FAISS); quotes the passage and links the job |
-| `resume_fit` | Skill match %, gaps quoted from the posting, and years required vs. the owner's; the resume is read locally and only skill names reach the model |
-| `salary_check` | Posted salary vs. similar open postings and the company's H-1B filed wages for similar titles |
+A **logistic regression** trained on 200 jobs I labeled "would apply" or "would skip", with
+active learning to pick what to label next. The cloud version uses **skill names only** (the
+share and count of a job's skills I have), so the saved model holds no resume text and can run
+in the daily job. On a held-out later day, PR-AUC 0.75 and 5 of the top 10 were real yeses
+(small test set). Publishing refuses any model that contains resume text.
 
-Every tool result is marked as untrusted third-party text, and every step is traced.
+### Assistant and evals
 
-**Evals.** [`evals/questions.csv`](evals/questions.csv) holds 57 questions in 9 categories
-(52 drafted, 5 written by the owner). Each has an automatic check: for data questions the
-right answer is recomputed by SQL at run time, because the job data changes daily.
+A **Claude tool-use** loop with four read-only tools: `run_sql` (one SELECT on approved gold
+tables, checked by a **sqlglot** guard, capped at 100 rows), `search_job_text` (RAG with local
+`bge-small` embeddings and FAISS, laptop only), `resume_fit` and `salary_check`. Tool results
+are marked as untrusted text against prompt injection, and every step is traced.
+
+The **eval suite** ([`evals/questions.csv`](evals/questions.csv)) has 57 questions in 9
+categories. For data questions the right answer is recomputed by SQL at run time, because the
+data changes daily.
+
+| Category | Sonnet 5.5, Nov 11 | Haiku 5.5, Nov 19 |
+|---|---|---|
+| Counts | 8 of 8 | 8 of 8 |
+| Rankings | 7 of 7 | 7 of 7 |
+| Filters | 8 of 8 | 8 of 8 |
+| Salary | 7 of 7 | 7 of 7 |
+| Honesty (says when the data can't answer) | 5 of 5 | 5 of 5 |
+| Safety (refuses writes, secrets, injected instructions) | 5 of 5 | 5 of 5 |
+| Description search | 7 of 7 | not used on the site |
+| Resume fit | 5 of 5 | not used on the site |
+| Owner's questions | 4 of 5 | not run |
+| **Total** | **56 of 57** | **40 of 40** |
+
+Haiku answered as accurately as Sonnet on the categories the public site needs, about 40%
+faster and 17 times cheaper, so the public Ask runs on Haiku. Safety and honesty evals run in
+CI on every PR that changes the assistant. Reports: [`evals/results/`](evals/results/).
 
 ```bash
 jobradar eval --truth-only    # check every right-answer query; no API cost
 jobradar eval --only Safety   # one category or a list of IDs
-jobradar eval                 # all 57 (about 15 minutes, about $3.50 in API usage)
-jobradar eval --regrade evals/results/<run>.jsonl   # re-grade saved answers, no API cost
+jobradar eval --regrade evals/results/<run>.jsonl   # re-grade saved answers for free
 ```
 
-Results, Nov 11 2026, `claude-sonnet-5-5` (full run, re-graded with the final checks):
+### Privacy by design
 
-| Category | Passed |
-|---|---|
-| Counts | 8 of 8 |
-| Rankings | 7 of 7 |
-| Filters | 8 of 8 |
-| Salary | 7 of 7 |
-| Description search | 7 of 7 |
-| Resume fit | 5 of 5 |
-| Honesty (says when the data can't answer) | 5 of 5 |
-| Safety (refuses writes, secrets, other schemas, injected instructions) | 5 of 5 |
-| Owner's questions | 4 of 5 |
-| **Total** | **56 of 57 (98%)** |
+- **Visitors' resumes never leave the browser.** pdf.js and mammoth read the file in the page;
+  only skill names and years of experience are sent to `POST /match`, and nothing is stored.
+- **The owner's data is private on a public site.** My ranked list and search need a passphrase
+  (SSM SecureString, compared in constant time). Visitors' Ask questions run in **public
+  mode**: the SQL guard drops my personal table and the `fit_score` column, and the model never
+  sees them in its schema.
+- **My resume and labels stay on the laptop.** The cloud gets skill names only.
+- **No secrets in the browser or the repo.** CloudFront adds the API key; GitHub signs in to AWS
+  with OIDC, no stored keys.
 
-The one miss (U03: it used a keyword query instead of the description search) was fixed with
-one prompt instruction and passed on a targeted rerun with the other search questions (8 of 8). How the suite was tuned, honestly: four checks were wrong, not the assistant (they
-missed correct wording such as "I didn't run that query" or "three filings"), and two were
-too lenient (a right number buried in a table counted as a pass), so single-answer checks now
-read only the opening answer. Every change is in the git history and in
-[`evals/results/`](evals/results/).
+### Daily triage
 
-**Choosing the model.** The same 15 count and ranking questions on two models
-([report](evals/results/model-comparison.md)):
+After each green run, a fixed workflow (not a free agent loop) judges up to 10 new jobs as
+apply, maybe or skip with one forced Haiku tool call each: a $0.05 cost cap checked before every
+call, exponential backoff retries, schema and fact checks (an out-of-reach job can't be
+"apply"), one trace line per job, and an automatic end date. Code writes the numbers; the model
+writes the judgment.
 
-| | Sonnet 5.5 | Haiku 5.5 |
-|---|---|---|
-| Passed | 15 of 15 | 15 of 15 |
-| Median seconds per question | 4.9 | 2.9 |
-| Estimated cost | $0.34 | $0.02 |
+### Serving and operations
 
-Haiku matched Sonnet on structured data questions at about 40% lower latency and 1/17th
-the cost, so simple SQL questions are candidates for routing to Haiku; Sonnet stays the
-default until Haiku is tested on the safety, honesty and search categories. The assistant
-can also run on Amazon Bedrock (`--provider bedrock`, unit-tested); a live Bedrock run is
-pending AWS account access.
+- **API** ([`src/jobradar/api`](src/jobradar/api)): FastAPI with `/health`, `/insights`
+  (cached), `/employers`, `/skills`, `/match`, `/ask` (daily cap counted in S3), and owner-only
+  `/jobs/today` and `/jobs/search`. Packaged in Docker (arm64) and run on **AWS Lambda** with
+  the Lambda Web Adapter.
+- **Web app** ([`web/`](web/)): React 19 + TypeScript (Vite), Recharts. Served from a private S3
+  bucket through **CloudFront**; `/api/*` goes to Lambda.
+- **Infrastructure as code** ([`infra/terraform`](infra/terraform)): S3, IAM, ECR, Lambda,
+  CloudFront, SNS, EventBridge, CloudWatch alarms, budget.
+- **CI/CD**: lint, tests and `dbt build` against a CI schema on every PR; `main` is protected.
+  Merges deploy the API (health check, automatic rollback) and the web app.
+- **Monitoring**: a daily watchdog checks the run log and data freshness and emails through SNS;
+  alarms fire if the API or watchdog keep failing. The [runbook](docs/runbook.md) covers 11
+  known failures, including a real 3-day Databricks outage.
+- **MCP server**: the same read-only tools for Claude Desktop, Claude Code or Cursor
+  ([setup](docs/mcp.md)).
 
-## Daily triage (picks by email)
+## Quick start (about 15 minutes)
 
-After each green daily run, a small workflow judges the newest jobs at my level (top 10 in
-my target role families with a fit score of 0.5 or more; jobs not yet scored are ranked by
-skill match instead, and the digest says how many). Fit scores are computed in the daily
-run by a model trained on my labels that uses skill names only, so neither the resume nor the
-labels leave the laptop as **apply, maybe or skip**, with up to three reasons grounded in the tool results and
-one prep tip, and emails a digest. It reuses the assistant's read-only tools, but as a fixed
-workflow rather than a free agent loop, because the steps are always the same:
-
-- **Limits:** Haiku, at most 10 jobs and $0.05 a run, checked before every call; an off switch
-  and an end date (it stops itself after Dec 31 unless extended).
-- **Retries:** busy or failing API calls are retried with exponential backoff; a job that still
-  fails is listed as "not triaged" and the run continues.
-- **Guardrails:** the model must answer through one forced tool call with a fixed schema;
-  verdicts are checked against the facts (an out-of-reach job can't be "apply", a weak skill
-  match is downgraded); job text is treated as untrusted data.
-- **Traces:** one line per job (inputs, verdict, tokens, cost, retries, flags) in S3 and the
-  GitHub run summary.
-- **Privacy:** the cloud run gets a list of skill names, never the resume.
-
-## Use it from Claude Desktop (MCP)
-
-The same six read-only tools the assistant uses are also offered as a local **MCP server**,
-so any MCP client (Claude Desktop, Claude Code, Cursor) can call them with no new code.
-The client's model does the reasoning; every query still goes through the SQL guard and the
-resume never leaves the laptop. Setup: [`docs/mcp.md`](docs/mcp.md).
-
-![Claude Desktop answering "what are the top 5 jobs I should apply to today?" with Job Radar's tools](docs/images/mcp-claude-desktop.png)
-
-## Quick start
-
-Requires Python 3.11 or newer.
+Requires Python 3.11+ and Node 22+. No cloud account is needed for the first steps.
 
 ```bash
 git clone https://github.com/ajinkyadesai-git/job-radar && cd job-radar
 python -m venv .venv && source .venv/bin/activate
-make install          # package and dev tools
-make test             # tests run offline: HTTP and S3 are mocked
-make verify           # check each board token responds (read-only)
-make ingest-local     # land raw JSON under ./data, no AWS needed
+make install          # the package and dev tools
+make check            # the same lint, format and tests CI runs (offline: HTTP, S3 and AWS are mocked)
+make verify           # read-only: does every company's job board respond?
+make ingest-local     # download today's raw job data to ./data, no AWS needed
+
+cd web && npm install && npm test && npm run build   # the web app's tests and build
 ```
 
-To land data in S3, follow [docs/setup-aws.md](docs/setup-aws.md), copy `.env.example` to
-`.env`, then run `make ingest`.
+To run the full pipeline you need your own AWS account ([setup](docs/setup-aws.md)), a free
+Databricks account, and an Anthropic API key for the assistant. Copy `.env.example` to `.env`
+and fill it in, then `make ingest`, `jobradar ask "..."` or `make serve` (API docs at
+`http://127.0.0.1:8000/docs`).
+
+## Repository map
+
+| Path | What's there |
+|---|---|
+| `src/jobradar/` | ingest, fit model, agent (tools, SQL guard, skills), RAG, evals, API, MCP server, triage, watchdog, CLI |
+| `spark/` | Databricks bronze and silver notebooks |
+| `dbt/` | gold models, macros, unit and data tests |
+| `web/` | React + TypeScript app |
+| `infra/` | Terraform, the Databricks job definition, the `main` branch ruleset |
+| `evals/` | the 57 questions and the published results |
+| `tests/` | pytest suite |
+| `docs/` | AWS setup, MCP setup, labeling guide, runbook |
+
+## Design decisions
+
+- **Daily batch, not streaming.** Job boards change a few times a day, so a daily run is enough
+  and far cheaper.
+- **Keep the raw response.** Parsing happens later, so a parser bug never loses data.
+- **Business rules in dbt, once.** The app, the assistant, the triage and the labeling queue
+  can't disagree, and each rule has a test.
+- **Read-only AI.** The agent can read data but can't write it, apply to jobs or send messages.
+- **Code does the math, the model does the judgment.** Numbers in AI output are computed in
+  code first.
+- **Measured model choice.** Haiku for the public site because the evals showed it was enough.
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 |---|---|---|
-| 1 | Accounts, repo, ingest to S3 with run log | Done |
-| 2 | Delta tables with first and last seen; DOL filings; employer matching | Done |
-| 3 | dbt models and tests; CI on pull requests; dev and prod | Done |
-| 4 | Fit classifier; Claude agent with SQL, RAG, resume-fit and salary tools; 57-question evals | Done |
-| 5 | FastAPI, Docker, Terraform, CD to AWS Lambda, alerts; model comparison | Done |
-| 6 | MCP server, daily triage agent, React app, Tableau dashboard | In progress (MCP, triage done) |
-
-## Design decisions
-
-- **Batch first.** Job boards change a few times a day, so a daily batch is enough and cheaper.
-- **Ingest runs outside Databricks.** Databricks Free Edition restricts outbound internet, so
-  fetching happens in Python and Databricks reads the landed files.
-- **Keep the raw response.** Parsing happens later, so a parser bug never loses data and any day
-  can be reprocessed.
-- **Read-only AI.** The agent and every tool can read data but cannot write it, apply to jobs or
-  send messages.
+| 1 | Ingest to S3 with run log | Done |
+| 2 | Delta lakehouse; DOL filings; employer matching | Done |
+| 3 | dbt models and tests; CI; dev and prod | Done |
+| 4 | Fit model; Claude agent with SQL, RAG and resume tools; evals | Done |
+| 5 | FastAPI, Docker, Terraform, CD to Lambda, alerts | Done |
+| 6 | MCP server, daily triage, web app with resume match | Done; v1.0 demo next |
+| Next | Privacy-safe usage counts and feedback; "who sponsors my job?" lookup for all professions; Kafka events and pipeline metrics; model comparison with MLflow | Planned |
 
 ## Data and ethics
 
-Uses only public, unauthenticated job-board endpoints at 1 request per second, and public DOL
-disclosure data. Personal data (resumes, labels) stays in git-ignored local files.
+Uses only public job-board endpoints at 1 request per second, and public DOL disclosure data with
+personal columns removed. Visitors' resumes are processed in their browser. The owner's resume
+and labels stay in git-ignored local files.
 
 ## License
 

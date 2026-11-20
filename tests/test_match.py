@@ -48,3 +48,15 @@ def test_every_skill_name_is_safe_inside_the_match_query():
     for name in SKILLS:
         assert "'" not in name and "|" not in name
     check(match_sql(list(SKILLS)[:40], 5), env="prod")
+
+
+def test_match_hides_titles_above_the_visitors_level_and_smooths_short_skill_lists():
+    from jobradar.queries import match_sql
+
+    junior = match_sql(["Python", "SQL"], years=2)
+    assert "seniority not in ('Staff / principal', 'Director+', 'Senior')" in junior
+    assert "(n_skills + 3)" in junior  # 3 of 3 skills no longer ties 7 of 7
+    mid = match_sql(["Python", "SQL"], years=5)
+    assert "'Senior'" not in mid and "'Staff / principal'" in mid
+    assert "seniority not in" not in match_sql(["Python"], years=10)
+    assert "copy = 1" in junior  # a job posted in several cities shows once

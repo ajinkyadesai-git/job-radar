@@ -245,3 +245,7 @@ infra/terraform/*.tfplan
 # Web app (T42)
 node_modules/
 *.tsbuildinfo
+
+# Saved Terraform plans can hold secret values (e.g. the API key read from SSM)
+tfplan
+*.tfplan

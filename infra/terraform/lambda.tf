@@ -55,11 +55,21 @@ resource "aws_iam_role_policy" "api_ask_usage" {
   role = aws_iam_role.api.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:GetObject", "s3:PutObject"]
-      Resource = "${aws_s3_bucket.raw.arn}/prod/ops/ask_usage/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.raw.arn}/prod/ops/ask_usage/*"
+      },
+      {
+        # Without ListBucket, S3 answers "access denied" (not "no such key") for a day with no
+        # counter yet, so the first question of each day failed. Limited to the counter folder.
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket"]
+        Resource  = aws_s3_bucket.raw.arn
+        Condition = { StringLike = { "s3:prefix" = ["prod/ops/ask_usage/*"] } }
+      },
+    ]
   })
 }
 
