@@ -81,3 +81,30 @@ def test_no_workflow_uses_stored_aws_keys():
     sign_in = next(i for i, s in enumerate(steps) if "Sign in to AWS" in s.get("name", ""))
     ingest = next(i for i, s in enumerate(steps) if "Ingest" in s.get("name", ""))
     assert sign_in < ingest
+
+
+def test_web_app_builds_on_prs_and_deploys_only_from_main():
+    web = yaml.safe_load((WORKFLOW.parent / "web.yml").read_text())
+    assert "web/**" in web[True]["pull_request"]["paths"]
+    build = [s.get("run", "") for s in web["jobs"]["build"]["steps"]]
+    assert {"npm ci", "npm test", "npm run build # also type-checks (tsc -b)"} <= set(build) or (
+        "npm test" in build and any(r.startswith("npm run build") for r in build)
+    )
+    deploy = web["jobs"]["deploy"]
+    assert deploy["needs"] == "build" and "refs/heads/main" in deploy["if"]
+    text = (WORKFLOW.parent / "web.yml").read_text()
+    assert "role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}" in text
+    assert "immutable" in text and '"no-cache"' in text  # the page is never served stale
+    assert "X-API-Key" not in text  # the key lives in CloudFront, not in the build
+
+
+def test_web_hosting_keeps_the_bucket_private_and_the_key_out_of_the_browser():
+    import re
+    from pathlib import Path
+
+    raw = (Path(__file__).resolve().parents[1] / "infra" / "terraform" / "web.tf").read_text()
+    tf = re.sub(r"[ \t]+", " ", raw)  # independent of terraform fmt's alignment
+    assert "restrict_public_buckets = true" in tf
+    assert '"AWS:SourceArn" = aws_cloudfront_distribution.web.arn' in tf
+    assert 'name = "X-API-Key"' in tf and 'path_pattern = "/api/*"' in tf
+    assert "Managed-CachingDisabled" in tf  # API answers are never cached at the edge
