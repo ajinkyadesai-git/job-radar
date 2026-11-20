@@ -292,6 +292,7 @@ def match(body: MatchIn, svc: Svc) -> dict:
         asked = [s for s in (row.pop("skills") or "").strip("|").split("|") if s]
         row.pop("matched", None)
         row.pop("n_skills", None)
+        row.pop("copy", None)
         matched = [s for s in asked if s in have]
         row.update(
             match_pct=round(100 * len(matched) / len(asked)) if asked else 0,

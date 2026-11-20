@@ -7,6 +7,15 @@ import { FitMeter } from "./FitMeter";
 
 const MAX_SKILLS = 40;
 
+
+const ROLE_FAMILIES = [
+  "Data / BI / AI",
+  "Software",
+  "Integration / solutions",
+  "Business systems / ERP",
+  "Technical program / product",
+];
+
 /** "Match my resume": read in the browser, send only skill names and years. */
 export function ResumeMatch({
   onResults,
@@ -19,6 +28,7 @@ export function ResumeMatch({
   const [vocab, setVocab] = useState<SkillVocab | null>(null);
   const [skills, setSkills] = useState<string[]>([]);
   const [years, setYears] = useState("");
+  const [family, setFamily] = useState("");
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState<"" | "reading" | "matching">("");
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +83,7 @@ export function ResumeMatch({
     setBusy("matching");
     setError(null);
     try {
-      const result = await api.match({ skills, years: y });
+      const result = await api.match({ skills, years: y, role_family: family || undefined });
       onResults(result.jobs);
       if (!result.jobs.length) {
         setError("No fresh jobs match these skills yet. Add related skills or try again tomorrow.");
@@ -168,6 +178,15 @@ export function ResumeMatch({
 
           <div className="match-go">
             <label>
+              Role family
+              <select value={family} onChange={(e) => setFamily(e.target.value)}>
+                <option value="">Any</option>
+                {ROLE_FAMILIES.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+            <label>
               Years of experience
               <input
                 type="number"
@@ -219,8 +238,8 @@ export function MatchList({
         </button>
       </div>
       <p className="sub">
-        Ranked by the share of each job's listed skills you have. Reach compares the years a job
-        asks for with yours.
+        Ranked by how many of each job's listed skills you have, favoring jobs that list more of
+        them. Titles above your level (Senior under 4 years, Staff and up under 8) are left out.
       </p>
       <ol className="jobs">
         {jobs.map((j) => (
