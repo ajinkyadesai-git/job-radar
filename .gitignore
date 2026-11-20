@@ -241,3 +241,7 @@ infra/terraform/*.tfstate.*
 infra/terraform/*.tfvars
 infra/terraform/crash.log
 infra/terraform/*.tfplan
+
+# Web app (T42)
+node_modules/
+*.tsbuildinfo
