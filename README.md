@@ -4,6 +4,12 @@
 
 **[Live demo → ajinkyadesai-git.github.io/job-radar](https://ajinkyadesai-git.github.io/job-radar)**
 
+
+
+https://github.com/user-attachments/assets/833abd3e-854a-4288-ab3d-f0e59d0716de
+
+
+
 Job seekers on visas lose hours checking career pages and guessing which employers will sponsor.
 Job Radar collects about 15,000 open jobs a day from 74 companies, checks each employer against
 554,000 public Department of Labor (DOL) H-1B wage filings, drops postings that say they won't
