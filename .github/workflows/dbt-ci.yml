@@ -3,6 +3,8 @@ name: dbt-ci
 # Every pull request builds and tests the gold layer on real data before it can be merged.
 # It writes to jobradar_ci_* schemas and only reads prod silver, so prod is never touched.
 # A failing dbt test turns this check red, and the main-branch rule blocks the merge.
+# A pull request that changes nothing dbt reads (dbt/, config/, scripts/, pyproject.toml)
+# skips the Databricks build and passes, so a Databricks outage can't block a website fix.
 on:
   # No path filter: this is a required check, so it must run on every pull request.
   pull_request:
@@ -28,14 +30,34 @@ jobs:
         working-directory: dbt
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Does this change touch anything dbt reads?
+        id: changes
+        working-directory: .
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then echo "data=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed=$(git diff --name-only "$base" HEAD)
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(dbt/|config/|scripts/|pyproject\.toml$)'; then
+            echo "data=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "data=false" >> "$GITHUB_OUTPUT"
+            echo "No dbt inputs changed: skipping the Databricks build." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/setup-python@v6
+        if: steps.changes.outputs.data == 'true'
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -e "..[dbt]"
+        if: steps.changes.outputs.data == 'true'
       - name: Companies seed matches config/companies.yaml
+        if: steps.changes.outputs.data == 'true'
         run: |
           python ../scripts/export_companies_seed.py
           git diff --exit-code seeds/companies.csv
       - name: Build and test the gold layer (ci target)
+        if: steps.changes.outputs.data == 'true'
         run: dbt build --target ci --profiles-dir .
