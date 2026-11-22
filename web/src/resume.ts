@@ -42,16 +42,26 @@ export async function readResume(file: File): Promise<string> {
   if (file.size > MAX_BYTES) throw new Error("That file is over 5 MB; try a PDF or paste the text.");
   const name = file.name.toLowerCase();
   if (name.endsWith(".pdf") || file.type === "application/pdf") {
-    const pdfjs = await import("pdfjs-dist");
-    const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
-    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
-    const pages: string[] = [];
-    for (let i = 1; i <= doc.numPages; i += 1) {
-      const content = await (await doc.getPage(i)).getTextContent();
-      pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+    // Older iPhones lack two features pdf.js needs (async iteration of streams,
+    // Promise.withResolvers): the legacy build plus our polyfills, in the page and the worker.
+    try {
+      await import("./pdfPolyfills");
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      pdfjs.GlobalWorkerOptions.workerPort ??= new Worker(new URL("./pdfWorker.ts", import.meta.url), {
+        type: "module",
+      });
+      const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      const pages: string[] = [];
+      for (let i = 1; i <= doc.numPages; i += 1) {
+        const content = await (await doc.getPage(i)).getTextContent();
+        pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+      }
+      return pages.join("\n");
+    } catch {
+      throw new Error(
+        "This browser couldn't read the PDF. Open \"Or paste the text\" and paste your resume instead.",
+      );
     }
-    return pages.join("\n");
   }
   if (name.endsWith(".docx")) {
     const mammoth = await import("mammoth/mammoth.browser.js");
