@@ -88,7 +88,7 @@ def test_endpoints_are_disabled_when_no_key_is_configured(api, monkeypatch):
 def test_today_builds_a_guarded_query_from_allowed_values_only(api, svc):
     r = api.get("/jobs/today?limit=5&reach=Stretch&role_family=Software", headers=OWNER)
     assert r.status_code == 200
-    assert r.json() == {"count": 1, "jobs": [
+    assert r.json() == {"count": 1, "as_of": None, "jobs": [
         {"company_name": "Ramp", "title": "Technical Consultant", "fit_score": 0.86}]}  # fmt: skip
     sql = svc._runner.ran[-1]
     assert "workspace.jobradar_gold.mart_new_postings" in sql  # went through the SQL guard
@@ -174,7 +174,7 @@ def test_employers_and_insights_use_fixed_guarded_queries(api, svc):
     assert r.status_code == 200 and r.json()["count"] == 1
     assert "workspace.jobradar_gold.dim_employer" in svc._runner.ran[-1]
     body = api.get("/insights", headers=KEY).json()
-    assert set(body) == {"jobs_by_family", "new_per_day", "pay_by_family", "top_sponsors"}
+    assert set(body) == {"jobs_by_family", "new_per_day", "pay_by_family", "top_sponsors", "as_of"}
     assert all("workspace.jobradar_gold." in sql for sql in svc._runner.ran[1:])
     before = len(svc._runner.ran)
     api.get("/insights", headers=KEY)  # served from the hour-long cache

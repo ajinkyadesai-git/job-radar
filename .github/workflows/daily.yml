@@ -2,7 +2,8 @@ name: daily
 
 # The daily pipeline: land today's job boards in S3 (prod), run the Databricks job
 # (bronze -> silver postings, DOL filings, employer matches), then build and test the gold
-# layer with dbt and check the data is fresh. Any failure turns the run red and emails you.
+# layer with dbt, check the data is fresh, and publish the website's views to S3 (the serving
+# snapshot the API reads). Any failure turns the run red and emails you.
 # After dbt, the fit model (skill names only, published from the laptop) scores open jobs
 # and the postings tables are rebuilt with today's scores. Then the triage job (T35) judges
 # the newest jobs at my level and emails a digest.
@@ -74,6 +75,10 @@ jobs:
       - name: Check the data is fresh
         working-directory: dbt
         run: dbt source freshness --target prod --profiles-dir .
+      # The website reads these files instead of querying the warehouse on every visit, so
+      # Databricks runs once a day and the site keeps the last good data if it goes down.
+      - name: Publish the website's views to S3 (serving snapshot)
+        run: jobradar export-serving
 
   # Runs only after the data run succeeds. A triage failure does not touch the data.
   triage:

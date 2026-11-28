@@ -67,13 +67,19 @@ resource "aws_iam_role_policy" "api_ask_usage" {
         ]
       },
       {
+        # The serving snapshot written by the daily run: read only.
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${aws_s3_bucket.raw.arn}/prod/ops/serving/*"]
+      },
+      {
         # Without ListBucket, S3 answers "access denied" (not "no such key") for a day with no
         # counter yet, so the first question of each day failed. Limited to these folders.
         Effect    = "Allow"
         Action    = ["s3:ListBucket"]
         Resource  = aws_s3_bucket.raw.arn
         Condition = { StringLike = { "s3:prefix" = [
-          "prod/ops/ask_usage/*", "prod/ops/usage/*", "prod/ops/feedback/*",
+          "prod/ops/ask_usage/*", "prod/ops/usage/*", "prod/ops/feedback/*", "prod/ops/serving/*",
         ] } }
       },
     ]

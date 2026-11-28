@@ -123,13 +123,16 @@ Check each key's expiry date in the console; renew before it lapses.
 
 ## 9. Databricks refuses every run (Free Edition lockout)
 
-Happened Nov 15–17. Daily run red at "Build the lakehouse in Databricks" with
+Happened Nov 15–17, Nov 22–23 and from Nov 26. Daily run red at "Build the lakehouse in Databricks" with
 `FEATURE_DISABLED: Triggering new runs for organization … is currently disabled temporarily`;
-the SQL warehouse answers `Cannot create the resource, please try again later`. So the daily
-build, `/jobs/today` and the assistant are all down, but ingest to S3 keeps working.
+the SQL warehouse answers `Cannot create the resource, please try again later`
+(`DENY_NEW_AND_EXISTING_RESOURCES`, `denyReason: INACTIVE`). The daily build and the assistant
+are down; ingest to S3 keeps working. Since the serving snapshot (Nov 27), Today, Employers,
+Insights and resume match keep working from the last snapshot in S3, showing its date, and Ask
+answers 503 "paused". Before that, every tab returned 500.
 
 Cause: Databricks Free Edition shuts off all compute after the account passes its free usage
-quota, for the rest of the day and "in extreme cases, the rest of the month". Data is kept.
+quota (until Nov 27 the website queried the warehouse on every visit, which used most of it), for the rest of the day and "in extreme cases, the rest of the month". Data is kept.
 There is no usage meter to check.
 
 ```bash
@@ -137,7 +140,7 @@ gh run view <run-id> --log-failed | grep -i DatabricksError   # confirm it is th
 ```
 
 - Verify identity with LinkedIn in the Databricks header (done Nov 17; raises the limits).
-- Wait for the reset, then `gh workflow run daily`. A green `dbt-ci` check on any PR is a
+- Wait for the reset, then `gh workflow run daily`; its last step republishes the snapshot. A green `dbt-ci` check on any PR is a
   quick sign compute is back.
 - If it lasts into a new month: create a fresh Free Edition workspace and re-point
   `DATABRICKS_*` (see 7); the tables rebuild from S3 with the daily run.

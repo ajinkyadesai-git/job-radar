@@ -13,6 +13,7 @@ jobradar fit-queue                 # pick the next postings to label (likely yes
 jobradar fit-score                 # score open jobs and upload the scores (only) to Databricks
 jobradar fit-publish               # upload a skills-only model for the daily cloud job
 jobradar skills-index              # tag each open job with the skills it asks for (resume match)
+jobradar export-serving            # publish the website's views from gold to S3 (once a day)
 jobradar ask "QUESTION"            # ask the AI assistant; it answers with read-only SQL on gold
 jobradar rag-index                 # (re)build the search index over open job descriptions
 jobradar triage                    # today's newest jobs at my level: apply / maybe / skip
@@ -380,6 +381,28 @@ def cmd_skills_index(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_export_serving(args: argparse.Namespace, settings: Settings) -> int:
+    """Run the website's queries once on the warehouse and publish the answers to S3, so the
+    API reads a file instead of waking Databricks on every visit (see jobradar.serving)."""
+    import boto3
+
+    from jobradar.agent.sql_guard import check
+    from jobradar.agent.tools import DatabricksRunner
+    from jobradar.serving import build_snapshot, publish
+
+    runner = DatabricksRunner(env=args.env)
+    snap = build_snapshot(lambda sql, n: runner.run(check(sql, env=args.env, max_rows=n).sql))
+    prefix = settings.s3_prefix or args.env
+    keys = publish(snap, boto3.client("s3", region_name=settings.aws_region),
+                   _bucket(args, settings), prefix)  # fmt: skip
+    print(
+        f"published serving snapshot (data as of {snap['as_of']}): {len(snap['today'])} Today "
+        f"jobs, {len(snap['employers'])} employers, {len(snap['match_pool'])} match-pool jobs "
+        f"-> {', '.join(keys)}"
+    )
+    return 0
+
+
 def cmd_rag_index(args: argparse.Namespace, settings: Settings) -> int:
     import time
 
@@ -642,6 +665,9 @@ def main(argv: list[str] | None = None) -> int:
     fs.add_argument("--bucket", help="default JOBRADAR_S3_BUCKET")
     si = sub.add_parser("skills-index", help="tag each open job with the skills it asks for")
     si.add_argument("--env", choices=["dev", "prod"], default="prod")
+    xs = sub.add_parser("export-serving", help="publish the website's views from gold to S3")
+    xs.add_argument("--env", default="prod", choices=["prod", "dev"])
+    xs.add_argument("--bucket", help="defaults to JOBRADAR_S3_BUCKET")
     fp = sub.add_parser("fit-publish", help="upload the trained model for the daily cloud job")
     fp.add_argument("--model", default="data/model")
     fp.add_argument("--labels", default="data/labels/daily_labels.csv")
@@ -712,6 +738,7 @@ def main(argv: list[str] | None = None) -> int:
         "fit-score": cmd_fit_score,
         "fit-publish": cmd_fit_publish,
         "skills-index": cmd_skills_index,
+        "export-serving": cmd_export_serving,
         "ask": cmd_ask,
         "rag-index": cmd_rag_index,
         "eval": cmd_eval,

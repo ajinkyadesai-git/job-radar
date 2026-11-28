@@ -79,7 +79,9 @@ flowchart LR
   ING --> S3 --> BRZ --> GLD
   GLD --> SKI --> GLD
   GLD --> TRI -->|email| SNS((SNS))
-  GLD --> API --> CF
+  GLD -->|daily snapshot| S3
+  S3 --> API --> CF
+  GLD -->|Ask only| API
   GLD --> MCP
   WD --> SNS
 ```
@@ -87,8 +89,9 @@ flowchart LR
 **Daily flow.** At about 6 am Pacific, GitHub Actions pulls every board into S3 (idempotent, one
 request a second), starts the Databricks job that loads bronze and merges silver (first seen,
 last seen, closed), rebuilds and tests the dbt gold models, tags each open job with its skills,
-scores fit with a published model, rebuilds the postings table, and emails a triage digest. A
-watchdog on Lambda emails me if the run is late, failed or stale.
+scores fit with a published model, rebuilds the postings table, publishes the website's views to
+S3 as a daily snapshot, and emails a triage digest. A watchdog on Lambda emails me if the run is
+late, failed or stale.
 
 ## How it's built
 
@@ -177,8 +180,12 @@ writes the judgment.
 
 ### Serving and operations
 
-- **API** ([`src/jobradar/api`](src/jobradar/api)): FastAPI with `/health`, `/insights`
-  (cached), `/employers`, `/skills`, `/match`, `/ask` (daily cap counted in S3), `/track` and
+- **Serving snapshot** ([`src/jobradar/serving.py`](src/jobradar/serving.py)): after dbt, the
+  daily run writes Today, Employers, Insights and the resume-match pool to S3 as one gzipped
+  JSON file. The API reads that instead of querying Databricks on every visit, so the warehouse
+  runs once a day and the site keeps working (with the snapshot's date) if Databricks is down.
+  Only Ask queries the warehouse live.
+- **API** ([`src/jobradar/api`](src/jobradar/api)): FastAPI with `/health`, `/insights`, `/employers`, `/skills`, `/match`, `/ask` (daily cap counted in S3), `/track` and
   `/feedback`, and owner-only `/jobs/today`, `/jobs/search` and `/usage`. Packaged in Docker (arm64) and run on **AWS Lambda** with
   the Lambda Web Adapter.
 - **Web app** ([`web/`](web/)): React 19 + TypeScript (Vite), Recharts. Served from a private S3

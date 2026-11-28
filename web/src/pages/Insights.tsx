@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { api } from "../api";
 import { median, money, shortDay, steadyDays } from "../format";
-import { Status } from "../Status";
+import { AsOf, Status } from "../Status";
 import { useLoad } from "../useLoad";
 
 const INK = "#1F2933";
@@ -55,6 +55,7 @@ export default function Insights({ owner = false }: { owner?: boolean }) {
           : "What the tech job market looks like at H-1B sponsors."}
       </h2>
       <p className="sub">Open US jobs at the 74 tracked companies, updated every morning.</p>
+      <AsOf date={data.as_of} />
 
       <div className="charts">
         <Chart

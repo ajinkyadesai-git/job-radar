@@ -4,10 +4,15 @@
     GET  /jobs/today      the Today list, best fit first, with optional filters
     GET  /jobs/search     search job descriptions by meaning
     GET  /employers       the tracked companies: open jobs and H-1B record
-    GET  /insights        numbers for the web app's charts (cached for an hour)
+    GET  /insights        numbers for the web app's charts
     GET  /skills          the tracked skill list and patterns (the browser reads resumes with it)
     POST /match           fresh jobs ranked for a visitor's skill names and years (CR09)
     POST /ask             ask the assistant a question (costs API money; capped per day)
+
+Today, Employers, Insights and resume match are served from the daily snapshot in S3 (see
+jobradar.serving): the Databricks warehouse runs once a day, not on every visit, and those tabs
+keep working while it is down. Without a snapshot (local runs, first deploy) they query the
+warehouse live. Ask always queries live; when the warehouse is down it answers 503 "paused".
 
 Everything except /health needs the header X-API-Key matching JOBRADAR_API_KEY. If that
 variable is not set, those endpoints answer 503 rather than run open to the internet.
@@ -97,6 +102,8 @@ class Services:
     _usage: object | None = None
     usage_checked: bool = False
     insights_cache: tuple[float, dict] | None = None
+    _store: object | None = None
+    store_checked: bool = False
 
     def runner(self):
         if self._runner is None:
@@ -144,6 +151,15 @@ class Services:
             self._usage = usage_from_environment()
         return self._usage
 
+    def snapshot(self) -> dict | None:
+        """Today's serving snapshot from S3, or None (then endpoints query the warehouse)."""
+        if self._store is None and not self.store_checked:
+            self.store_checked = True
+            from jobradar.serving import store_from_environment
+
+            self._store = store_from_environment()
+        return self._store.get() if self._store is not None else None
+
     def count(self, event: str, referrer: str | None = None) -> None:
         """Count a visitor event. Never fails the request it belongs to."""
         try:
@@ -154,8 +170,21 @@ class Services:
             logging.getLogger(__name__).warning("usage count failed for %s", event)
 
     def rows(self, sql: str) -> list[dict]:
-        columns, rows = self.runner().run(check(sql, env=self.env).sql)
+        try:
+            columns, rows = self.runner().run(check(sql, env=self.env).sql)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise warehouse_down(e) from e
         return [dict(zip(columns, r, strict=False)) for r in rows]
+
+
+def warehouse_down(e: Exception) -> HTTPException:
+    """A clear 503 instead of a bare 500 when Databricks can't be reached or won't start."""
+    logging.getLogger(__name__).warning("warehouse query failed: %s", str(e)[:300])
+    return HTTPException(
+        503, "The data warehouse is unavailable right now (Databricks). Try again later."
+    )
 
 
 @lru_cache(maxsize=1)
@@ -214,10 +243,14 @@ def jobs_today(
     role_family: Literal[ROLE_FAMILIES] | None = None,  # type: ignore[valid-type]
 ) -> dict:
     """The Today list: new roles at sponsors, at your level, best fit first."""
-    sql = today_sql(limit, reach, role_family)
-    columns, rows = svc.runner().run(check(sql, env=svc.env).sql)
-    jobs = [dict(zip(columns, r, strict=False)) for r in rows]
-    return {"count": len(jobs), "jobs": jobs}
+    snap = svc.snapshot()
+    if snap is not None:
+        from jobradar.serving import today_rows
+
+        jobs = today_rows(snap, limit, reach, role_family)
+        return {"count": len(jobs), "jobs": jobs, "as_of": snap.get("as_of")}
+    jobs = svc.rows(today_sql(limit, reach, role_family))
+    return {"count": len(jobs), "jobs": jobs, "as_of": None}
 
 
 @app.get("/jobs/search", dependencies=[Key, Owner])
@@ -254,8 +287,12 @@ def jobs_search(
 @app.get("/employers", dependencies=[Key])
 def employers(svc: Svc) -> dict:
     """Every tracked company: open US jobs and its H-1B filing record."""
+    snap = svc.snapshot()
+    if snap is not None:
+        rows = snap.get("employers", [])
+        return {"count": len(rows), "employers": rows, "as_of": snap.get("as_of")}
     rows = svc.rows(EMPLOYERS_SQL)
-    return {"count": len(rows), "employers": rows}
+    return {"count": len(rows), "employers": rows, "as_of": None}
 
 
 INSIGHTS_TTL_S = 3600  # the data changes once a day
@@ -263,10 +300,13 @@ INSIGHTS_TTL_S = 3600  # the data changes once a day
 
 @app.get("/insights", dependencies=[Key])
 def insights(svc: Svc) -> dict:
-    """Numbers for the web app's charts. Cached per server for an hour."""
+    """Numbers for the web app's charts: from the snapshot, or live and cached for an hour."""
+    snap = svc.snapshot()
+    if snap is not None:
+        return {**snap.get("insights", {}), "as_of": snap.get("as_of")}
     if svc.insights_cache and time.time() - svc.insights_cache[0] < INSIGHTS_TTL_S:
         return svc.insights_cache[1]
-    data = {name: svc.rows(sql) for name, sql in INSIGHTS.items()}
+    data = {name: svc.rows(sql) for name, sql in INSIGHTS.items()} | {"as_of": None}
     svc.insights_cache = (time.time(), data)
     return data
 
@@ -302,13 +342,21 @@ def _reach(years_required, years: int) -> str:
 def match(body: MatchIn, svc: Svc, x_owner_key: Annotated[str | None, Header()] = None) -> dict:
     """Fresh tech jobs (last 14 days) at H-1B sponsors, ranked by how many of each job's
     skills the visitor has. Nothing about the visitor is stored or logged."""
+    snap = svc.snapshot()
     try:
-        sql = match_sql(body.skills, body.years, body.role_family, body.limit)
+        if snap is not None:
+            from jobradar.serving import match_rows
+
+            found = match_rows(snap, body.skills, body.years, body.role_family, body.limit)
+        else:
+            sql = match_sql(body.skills, body.years, body.role_family, body.limit)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+    if snap is None:
+        found = svc.rows(sql)
     have = set(body.skills)
     jobs = []
-    for row in svc.rows(sql):
+    for row in found:
         asked = [s for s in (row.pop("skills") or "").strip("|").split("|") if s]
         row.pop("matched", None)
         row.pop("n_skills", None)
@@ -323,7 +371,8 @@ def match(body: MatchIn, svc: Svc, x_owner_key: Annotated[str | None, Header()] 
         jobs.append(row)
     if not is_owner(x_owner_key):
         svc.count("match")
-    return {"count": len(jobs), "fresh_days": 14, "jobs": jobs}
+    as_of = snap.get("as_of") if snap is not None else None
+    return {"count": len(jobs), "fresh_days": 14, "jobs": jobs, "as_of": as_of}
 
 
 if os.environ.get("JOBRADAR_WATCHDOG") == "1":
@@ -352,6 +401,14 @@ def ask_endpoint(
 
     if not os.environ.get("ANTHROPIC_API_KEY") and svc._client is None:
         raise HTTPException(503, "ANTHROPIC_API_KEY is not set on the server")
+    try:  # Ask needs the live warehouse; say so plainly when it's down
+        runner, schema_text = svc.runner(), svc.schema()
+    except Exception as e:
+        raise HTTPException(
+            503,
+            "Ask is paused: the data warehouse (Databricks) is unavailable right now. "
+            "The other tabs still work. Try again later.",
+        ) from e
     remaining = None
     quota = svc.quota()
     if quota is not None:
@@ -362,8 +419,8 @@ def ask_endpoint(
         svc.count("ask")
     model = os.environ.get("JOBRADAR_AGENT_MODEL") or DEFAULT_MODEL
     r = ask(
-        body.question, svc.client(), svc.runner(), env=svc.env, model=model,
-        schema_text=svc.schema(), searcher=svc.searcher(), resume_text=None,
+        body.question, svc.client(), runner, env=svc.env, model=model,
+        schema_text=schema_text, searcher=svc.searcher(), resume_text=None,
         public=not is_owner(x_owner_key),
     )  # fmt: skip
     return {
