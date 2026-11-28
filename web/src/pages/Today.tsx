@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, ApiError } from "../api";
 import { clearOwnerKey } from "../owner";
 import { payRange, plural, shortDay } from "../format";
-import { Status } from "../Status";
+import { AsOf, Status } from "../Status";
 import { useLoad } from "../useLoad";
 import type { MatchJob } from "../types";
 import { FitMeter } from "./FitMeter";
@@ -113,6 +113,7 @@ function MyList({
       </div>
 
       <Status loading={loading} error={error} what="today's jobs" />
+      <AsOf date={data?.as_of} />
       {data && jobs.length === 0 && (
         <p className="status">No jobs match these filters. Set both to Any to see the full list.</p>
       )}

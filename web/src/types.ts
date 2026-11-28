@@ -30,6 +30,7 @@ export interface Employer {
 }
 
 export interface Insights {
+  as_of?: string | null;
   jobs_by_family: { role_family: string; open_jobs: number; good_fit: number }[];
   new_per_day: { day: string; new_jobs: number }[];
   pay_by_family: { role_family: string; with_salary: number; median_posted_midpoint: number }[];

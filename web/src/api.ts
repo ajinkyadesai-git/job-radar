@@ -38,13 +38,19 @@ export const api = {
     const q = new URLSearchParams({ limit: String(params.limit ?? 50) });
     if (params.reach) q.set("reach", params.reach);
     if (params.role_family) q.set("role_family", params.role_family);
-    return call<{ count: number; jobs: Job[] }>(`/jobs/today?${q}`);
+    return call<{ count: number; jobs: Job[]; as_of?: string | null }>(`/jobs/today?${q}`);
   },
-  employers: () => call<{ count: number; employers: Employer[] }>("/employers"),
+  employers: () =>
+    call<{ count: number; employers: Employer[]; as_of?: string | null }>("/employers"),
   insights: () => call<Insights>("/insights"),
   skills: () => call<SkillVocab>("/skills"),
   match: (body: { skills: string[]; years: number; role_family?: string }) =>
-    call<{ count: number; fresh_days: number; jobs: MatchJob[] }>("/match", {
+    call<{
+      count: number;
+      fresh_days: number;
+      jobs: MatchJob[];
+      as_of?: string | null;
+    }>("/match", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, limit: 30 }),

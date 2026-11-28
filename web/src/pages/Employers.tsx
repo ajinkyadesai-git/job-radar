@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
 import { money, percent } from "../format";
-import { Status } from "../Status";
+import { AsOf, Status } from "../Status";
 import type { Employer } from "../types";
 import { useLoad } from "../useLoad";
 
@@ -38,6 +38,7 @@ export default function Employers() {
         company put on the form, which is a floor, not a salary range.
       </p>
       <Status loading={loading} error={error} what="employers" />
+      <AsOf date={data?.as_of} />
       {rows.length > 0 && (
         <div className="table-wrap">
           <table>
